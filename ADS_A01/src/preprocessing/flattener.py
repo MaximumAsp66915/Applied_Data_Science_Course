@@ -14,7 +14,6 @@ def flatten_and_clean(df_tracks, df_artists, df_users):
             val = val.strip()
             if not val or val.lower() == 'null' or val == '[null]': return np.nan
             
-            # Try to parse stringified list
             parsed = None
             try: parsed = json.loads(val)
             except: pass
@@ -28,28 +27,43 @@ def flatten_and_clean(df_tracks, df_artists, df_users):
                 except: pass
             
             if isinstance(parsed, list):
-                # Only flatten simple lists of strings/numbers, ignore if it contains dicts
-                if all(not isinstance(item, dict) for item in parsed):
-                    # Filter out any literal 'null' inside the list
-                    clean_items = [str(item) for item in parsed if str(item).lower() != 'null' and item is not None]
-                    if not clean_items:
-                        return np.nan
-                    return ", ".join(clean_items)
+                # Flatten the list elements
+                clean_items = []
+                for item in parsed:
+                    if str(item).lower() == 'null' or item is None:
+                        continue
+                        
+                    # If it's a dict (like a reaction), simplify it to "ID: Reaction"
+                    if isinstance(item, dict):
+                        # Extract an ID if present
+                        uid = item.get('user_id', item.get('track_id', item.get('artist_id', '')))
+                        reaction = item.get('reaction', '')
+                        if uid and reaction:
+                            clean_items.append(f"{uid}:{reaction}")
+                        else:
+                            # Just format the dict compactly without brackets
+                            parts = [f"{k}={v}" for k,v in item.items()]
+                            clean_items.append("(" + ", ".join(parts) + ")")
+                    else:
+                        clean_items.append(str(item))
+                        
+                if not clean_items:
+                    return np.nan
+                return ", ".join(clean_items)
             
             if val.lower() == 'null' or val == '[null]':
                 return np.nan
                 
         return val
 
-    # Target simple list columns to flatten
-    target_cols_tracks = ['artist_names', 'sender_usernames', 'sender_chat_ids']
-    for col in target_cols_tracks:
-        if col in t_df.columns:
-            t_df[col] = t_df[col].apply(parse_and_flatten)
-
-    # Convert literal "null" strings to NaN everywhere else for robustness
-    t_df.replace(to_replace=[r'^null$', r'^\[null\]$'], value=np.nan, regex=True, inplace=True)
-    a_df.replace(to_replace=[r'^null$', r'^\[null\]$'], value=np.nan, regex=True, inplace=True)
-    u_df.replace(to_replace=[r'^null$', r'^\[null\]$'], value=np.nan, regex=True, inplace=True)
+    # Target ALL columns that could contain stringified lists/JSON
+    for df in [t_df, a_df, u_df]:
+        for col in df.columns:
+            # Try to identify stringified list columns roughly
+            if df[col].astype(str).str.startswith('[').any():
+                df[col] = df[col].apply(parse_and_flatten)
+            
+        # Convert literal "null" strings to NaN everywhere else for robustness
+        df.replace(to_replace=[r'^null$', r'^\[null\]$'], value=np.nan, regex=True, inplace=True)
 
     return t_df, a_df, u_df

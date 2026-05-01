@@ -7,25 +7,21 @@ def simplify_all_ids(df_tracks, df_artists, df_users):
     a_df = df_artists.copy()
     u_df = df_users.copy()
     
-    # 1. Build Unique Entity Maps (Keep track of the counter)
-    global_u = {}
-    u_idx = 1
+    global_u, global_t, global_a = {}, {}, {}
+    u_idx, t_idx, a_idx = 1, 1, 1
+    
     if 'user_id' in u_df.columns:
         for val in u_df['user_id'].dropna().astype(str).unique():
             if val not in global_u:
                 global_u[val] = u_idx
                 u_idx += 1
                 
-    global_t = {}
-    t_idx = 1
     if 'track_id' in t_df.columns:
         for val in t_df['track_id'].dropna().astype(str).unique():
             if val not in global_t:
                 global_t[val] = t_idx
                 t_idx += 1
                 
-    global_a = {}
-    a_idx = 1
     if 'artist_id' in a_df.columns:
         for val in a_df['artist_id'].dropna().astype(str).unique():
             if val not in global_a:
@@ -55,7 +51,6 @@ def simplify_all_ids(df_tracks, df_artists, df_users):
             global_a[v] = a_idx
             a_idx += 1
         return global_a[v]
-
 
     def safe_parse(val):
         if pd.isna(val): return None
@@ -102,34 +97,31 @@ def simplify_all_ids(df_tracks, df_artists, df_users):
         else:
             return obj
 
-    # ------------------ TRACKS ------------------
     if 'track_id' in t_df.columns:
-        t_df['track_id'] = t_df['track_id'].astype(str).map(lambda x: get_t_id(x) if pd.notna(x) else x)
+        t_df['track_id'] = t_df['track_id'].astype(str).map(lambda x: get_t_id(x) if pd.notna(x) else x).astype(int)
         
     for col in ['likes', 'dislikes', 'reactions']:
         if col in t_df.columns:
-            t_df[col] = t_df[col].apply(lambda x: json.dumps(recursive_remap(safe_parse(x), "user")) if safe_parse(x) is not None else x)
+            t_df[col] = t_df[col].apply(lambda x: json.dumps(recursive_remap(safe_parse(x), "user"), ensure_ascii=False) if safe_parse(x) is not None else x)
 
-    # ------------------ ARTISTS ------------------
     if 'artist_id' in a_df.columns:
-        a_df['artist_id'] = a_df['artist_id'].astype(str).map(lambda x: get_a_id(x) if pd.notna(x) else x)
+        a_df['artist_id'] = a_df['artist_id'].astype(str).map(lambda x: get_a_id(x) if pd.notna(x) else x).astype(int)
         
     for col in ['likes', 'dislikes', 'reactions']:
         if col in a_df.columns:
-            a_df[col] = a_df[col].apply(lambda x: json.dumps(recursive_remap(safe_parse(x), "user")) if safe_parse(x) is not None else x)
+            a_df[col] = a_df[col].apply(lambda x: json.dumps(recursive_remap(safe_parse(x), "user"), ensure_ascii=False) if safe_parse(x) is not None else x)
 
-    # ------------------ USERS ------------------
     if 'user_id' in u_df.columns:
-        u_df['user_id'] = u_df['user_id'].astype(str).map(lambda x: get_u_id(x) if pd.notna(x) else x)
+        u_df['user_id'] = u_df['user_id'].astype(str).map(lambda x: get_u_id(x) if pd.notna(x) else x).astype(int)
         
     user_tracks_cols = ['uploaded_tracks', 'liked_tracks', 'disliked_tracks', 'reacted_tracks', 'likes_received', 'dislikes_received', 'reactions_received']
     for col in user_tracks_cols:
         if col in u_df.columns:
-            u_df[col] = u_df[col].apply(lambda x: json.dumps(recursive_remap(safe_parse(x), "track")) if safe_parse(x) is not None else x)
+            u_df[col] = u_df[col].apply(lambda x: json.dumps(recursive_remap(safe_parse(x), "track"), ensure_ascii=False) if safe_parse(x) is not None else x)
             
     user_users_cols = ['liked_users', 'disliked_users', 'reacted_users', 'users_liked', 'users_disliked', 'users_reacted']
     for col in user_users_cols:
         if col in u_df.columns:
-            u_df[col] = u_df[col].apply(lambda x: json.dumps(recursive_remap(safe_parse(x), "user")) if safe_parse(x) is not None else x)
+            u_df[col] = u_df[col].apply(lambda x: json.dumps(recursive_remap(safe_parse(x), "user"), ensure_ascii=False) if safe_parse(x) is not None else x)
 
     return t_df, a_df, u_df
