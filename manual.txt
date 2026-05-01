@@ -1,0 +1,43 @@
+# Git Manual for Applied Data Science Homeworks
+
+This manual explains how to push and pull your homework assignments. 
+
+Remember: Make sure your terminal is opened in the "Raw" folder:
+C:\Users\Asus\University\SUT\Bachelor\6th Semester\Applied_Data_Science\Homeworks\Raw
+
+---------------------------------------------------------
+1. How to PUSH (upload) ALL homeworks at once
+---------------------------------------------------------
+Use this when you want to save and upload everything you've worked on across all folders.
+
+Run these commands one by one:
+git add .
+git commit -m "Update all homeworks"
+git push -u origin main
+
+---------------------------------------------------------
+2. How to PUSH (upload) ONLY ONE specific homework
+---------------------------------------------------------
+Use this when you were working on multiple things but only want to publish one homework (e.g., ADS_A01).
+
+Run these commands one by one:
+git add ADS_A01/
+git commit -m "Completed ADS_A01 assignment"
+git push -u origin main
+
+---------------------------------------------------------
+3. How to PULL (download) updates
+---------------------------------------------------------
+Git behaves a bit differently for pulling. You don't usually pull just one folder; you pull the entire repository to keep everything in sync. Since your datasets are "git-ignored", the code files are very small and this is lightning fast.
+
+Run this command:
+git pull origin main
+
+---------------------------------------------------------
+Quick Glossary
+---------------------------------------------------------
+git status  -> Tells you which files have been modified but not committed yet
+git add     -> Stages the files you want to save
+git commit  -> Saves the staged files with a message
+git push    -> Uploads your saved commits to GitHub
+git pull    -> Downloads changes from GitHub to your computer
