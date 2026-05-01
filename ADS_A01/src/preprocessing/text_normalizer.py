@@ -1,9 +1,8 @@
 ﻿import pandas as pd
 
-def normalize_texts(df_tracks, df_artists, df_users):
+def normalize_texts(df_tracks, df_artists):
     t_df = df_tracks.copy()
     a_df = df_artists.copy()
-    u_df = df_users.copy()
     
     def process_str(text):
         if pd.isna(text):
@@ -23,11 +22,5 @@ def normalize_texts(df_tracks, df_artists, df_users):
     for col in str_cols_a:
         if col in a_df.columns:
             a_df[col] = a_df[col].apply(process_str)
-
-    # Text columns typical in Users
-    str_cols_u = ['username', 'first_name', 'last_name', 'language']
-    for col in str_cols_u:
-        if col in u_df.columns:
-            u_df[col] = u_df[col].apply(process_str)
             
-    return t_df, a_df, u_df
+    return t_df, a_df
