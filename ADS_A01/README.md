@@ -1,4 +1,4 @@
-# ADS_A01 - [Assignment Title]
+# ADS_A01 - 🎼 ADS Homework A01 - SUTMusic Analysis
 
 ## Overview
 This repository contains the first homework assignment (`ADS_A01`) for the Applied Data Science course. 
@@ -10,8 +10,8 @@ This repository contains the first homework assignment (`ADS_A01`) for the Appli
 - `pre_provided/`: Provided resources and homework instructions.
 
 ## Links
-- **Google Colab:** [Paste Colab Link Here]
-- **GitHub Repository:** [Paste GitHub Link Here]
+- **Google Colab:** [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](PASTE_YOUR_COLAB_URL_HERE)
+- **GitHub Repository:** [![View on GitHub](https://img.shields.io/badge/GitHub-View_Repository-blue?logo=GitHub)](https://github.com/MaximumAsp66915/Applied_Data_Science_Course/blob/main/ADS_A01/notebooks/01_Main_Analysis.ipynb)
 
 ## Instructions to Run
 1. Install dependencies: `pip install -r requirements.txt`
