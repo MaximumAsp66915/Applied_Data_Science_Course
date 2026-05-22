@@ -1,31 +1,45 @@
-# ADS_A01 - 🎼 ADS Homework A01 - SUTMusic Analysis
+# ADS_A02 - 🎼 ADS Homework A02 - SUTMusic Predictive Modeling
 
 ## Overview
-This repository contains the first homework assignment (`ADS_A01`) for the Applied Data Science course. 
+This repository contains the second homework assignment (`ADS_A02`) for the Applied Data Science course. It continues the analysis of the SUTMusic dataset, focusing exclusively on **Predictive Modeling** across continuous, binary, and multiclass targets.
 
 ## Project Structure
-- `data/`: Contains raw, external, and processed data. Note: Large data files are git-ignored.
-- `src/`: Reusable Python modules for scraping, processing, visualizing, and modeling.
-- `notebooks/`: Jupyter notebooks containing the main analysis.
+- `data/`: Contains raw, external, and processed data (`reg_tracks.csv`, etc.). Note: Large data files are git-ignored.
+- `src/`: Reusable Python modules containing our robust data preprocessing pipelines and feature engineering specifically built for regression/classification stability.
+- `notebooks/`: Jupyter notebooks (`02_Main_Analysis.ipynb`) containing the principal predictive analysis, tuning, and evaluation frameworks.
 - `pre_provided/`: Provided resources and homework instructions.
 
-## Links
-- **Google Colab:** [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](PASTE_YOUR_COLAB_URL_HERE)
-- **GitHub Repository:** [![View on GitHub](https://img.shields.io/badge/GitHub-View_Repository-blue?logo=GitHub)](https://github.com/MaximumAsp66915/Applied_Data_Science_Course/blob/main/ADS_A01/notebooks/01_Main_Analysis.ipynb)
+## Analysis Portions
+
+### 1️⃣ Regression Methods
+Predicting continuous target variables (such as track total reactions/popularity) utilizing:
+- Linear Regression (Baseline)
+- Ridge & Lasso Regression (L2 / L1 Regularization)
+- Kernel Ridge Regression
+- Decision Tree Regressors
+
+### 2️⃣ Binary Classification Methods
+Grouping tracks into binary states of "Popular" vs "Not Popular" utilizing threshold modeling and evaluating with Confusion Matrices and ROC/AUC across:
+- Logistic Regression
+- Support Vector Machines (Linear & Kernel RBF)
+- K-Nearest Neighbors (Tuned `k`)
+- Decision Trees (Tuned `max_depth`)
+- Random Forest 
+
+### 3️⃣ Multiclass Classification & Boosting
+Splitting tracks into 4 distinct groups (`Neutral`, `Loved`, `Hated`, `Controversial`) via reactions/likes/dislikes ratios to test multi-label capacities:
+- Multiclass SVM & Logistic Regression (OVR / Multinomial)
+- Tuned Multiclass KNN & Decision Trees
+- **Advanced Ensemble & Boosting Methods:** Random Forest, XGBoost, LightGBM, AdaBoost, and CatBoost.
+- Focus on `Macro F1-Score`, `Log Loss`, and Class-specific precision metrics.
+
+### 4️⃣ Theoretical Discussions
+Deep theoretical dives into the math and rationale driving the implementations (Bias-Variance tradeoff, MAPE unreliability, Overfitting constraints, Macro vs Micro variations).
 
 ## Instructions to Run
 1. Install dependencies: `pip install -r requirements.txt`
-2. Run the main notebook located at `notebooks/01_Main_Analysis.ipynb`
-
+2. Make sure you have exported your extracted dataset into the `data/raw` folder.
+3. Run the main notebook located at `notebooks/02_Main_Analysis.ipynb`
 
 ## About the Data
-The raw data in this repository was scraped via a Python script from the public Telegram group [SharifMusic](https://t.me/SharifMusic) (The scraping action was strictly legal). The extraction ran for 8 hours on May 2, 2025, yielding a full year of historical records spanning exactly until May 1, 2025.
-
-### 📊 Data Summary
-The dataset has been converted to `.csv` format (from its original `.db` state for easier usage) and consists of:
-- **10,725** Tracks
-- **3,912** Artists
-- **783** Active Users
-- Comprehensive interaction arrays, highlighting which user uploaded which track, upvotes/downvotes based on emoji category, specific emoji reactions, and interaction maps correlating users to emojis.
-
-*⚠️ Note:* The data inherently requires deep algorithmic cleaning due to variances in track naming, missing attributes, and unstructured emoji mappings. Expect robust EDA parsing methods inside the main notebook. 
+The dataset contains historical records from the SUTMusic ecosystem spanning a full year (May 2024 to May 2025). It has been carefully structured through `pandas` data engineering to collapse complicated JSON string arrays into clean integer parameters for the estimators. 
