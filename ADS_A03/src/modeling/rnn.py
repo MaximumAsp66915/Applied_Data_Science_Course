@@ -12,13 +12,16 @@ class UnifiedStockSequencer(nn.Module):
         self.rnn_type = rnn_type.upper()
         self.bidirectional = bidirectional
         
-        # Configure the specified recurrent core network block
+       # Configure the specified recurrent core network block
         if self.rnn_type == "RNN":
-            self.rnn_core = nn.RNN(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout if num_layers > 1 else 0.0)
+            self.rnn_core = nn.RNN(input_size, hidden_size, num_layers, batch_first=True, 
+                                   dropout=dropout if num_layers > 1 else 0.0, bidirectional=self.bidirectional) # Added flag
         elif self.rnn_type == "GRU":
-            self.rnn_core = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout if num_layers > 1 else 0.0)
+            self.rnn_core = nn.GRU(input_size, hidden_size, num_layers, batch_first=True, 
+                                   dropout=dropout if num_layers > 1 else 0.0, bidirectional=self.bidirectional) # Added flag
         elif self.rnn_type == "LSTM":
-            self.rnn_core = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout if num_layers > 1 else 0.0)
+            self.rnn_core = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, 
+                                    dropout=dropout if num_layers > 1 else 0.0, bidirectional=self.bidirectional) # Added flag
         else:
             raise ValueError("❌ Invalid rnn_type specified. Use 'RNN', 'LSTM', or 'GRU'.")
             
@@ -27,11 +30,18 @@ class UnifiedStockSequencer(nn.Module):
         self.fc_head = nn.Linear(hidden_size * self.direction_multiplier, 1)
 
     def forward(self, x):
-        # x shape layout: [Batch Size, Sequence Length, Input Size]
+        # x shape: [Batch Size, Sequence Length, Input Size]
         out, _ = self.rnn_core(x)
         
-        # Extract the hidden representations from the final sequential timestep slice
-        out = out[:, -1, :]
+        if self.bidirectional:
+            # Separate the forward and backward hidden states
+            # PyTorch reshapes outputs as: [Batch, SeqLen, Directions * HiddenSize]
+            out_forward = out[:, -1, :self.hidden_size]       # Last step of forward path
+            out_backward = out[:, 0, self.hidden_size:]       # First step of backward path
+            out = torch.cat((out_forward, out_backward), dim=-1)
+        else:
+            # Unidirectional simple extraction
+            out = out[:, -1, :]
         
         # Compute the regression output for the next day's closing price
         predictions = self.fc_head(out)
