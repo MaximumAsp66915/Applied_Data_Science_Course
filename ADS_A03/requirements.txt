@@ -1,9 +1,8 @@
-pandas
 numpy
+pandas
 matplotlib
 seaborn
+plotly
 scikit-learn
-jupyter
-xgboost
-lightgbm
-catboost
+torch
+torchvision
