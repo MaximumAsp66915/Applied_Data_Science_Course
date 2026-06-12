@@ -17,7 +17,7 @@ def generate_regression_gif(model, data_loader, criterion, optimizer, epochs=50,
     model = model.to(device)
     epoch_predictions = []
     
-    # 1. Extract ground truths from DataLoader once for plotting
+    # Extract ground truths from DataLoader once for plotting
     all_trues = []
     for _, batch_y in data_loader:
         all_trues.extend(batch_y.numpy() if isinstance(batch_y, torch.Tensor) else batch_y)
@@ -42,8 +42,7 @@ def generate_regression_gif(model, data_loader, criterion, optimizer, epochs=50,
                 epoch_preds.extend(preds.cpu().numpy())
         epoch_predictions.append(np.array(epoch_preds).squeeze())
 
-    # 2. Setup a True Square Figure Grid Canvas
-    # ✅ Fixed: Forced matching width/height dimensions (5.5 x 5.5 inches)
+    # Setup a True Square Figure Grid Canvas
     fig, ax = plt.subplots(figsize=(5.5, 5.5))
     ideal_min, ideal_max = y_true.min(), y_true.max()
     
@@ -58,12 +57,10 @@ def generate_regression_gif(model, data_loader, criterion, optimizer, epochs=50,
     
     title_text = ax.set_title("", fontsize=11, fontweight='bold')
     
-    # ✅ Fixed: Lowered vertical placement coordinate to 0.80 to prevent trimming collisions
     metric_text = ax.text(0.05, 0.80, "", transform=ax.transAxes, 
                           bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
     ax.legend(loc='lower right')
     
-    # ✅ Fixed: Added structured tracking pad buffer margins around the axes canvas edge
     plt.tight_layout(pad=2.0)
 
     # Animation Frame Update Routine
@@ -123,7 +120,7 @@ def generate_classification_gif(model, data_loader, criterion, optimizer, epochs
     model = model.to(device)
     epoch_predictions = []
     
-    # 1. Extract ground truths from DataLoader once for computing metrics
+    # Extract ground truths from DataLoader once for computing metrics
     all_trues = []
     for _, batch_y in data_loader:
         all_trues.extend(batch_y.numpy() if isinstance(batch_y, torch.Tensor) else batch_y)
@@ -150,7 +147,7 @@ def generate_classification_gif(model, data_loader, criterion, optimizer, epochs
                 epoch_preds.extend(preds.cpu().numpy())
         epoch_predictions.append(np.array(epoch_preds).squeeze())
 
-    # 2. Setup a True Square Figure Grid Canvas
+    # Setup a True Square Figure Grid Canvas
     fig, ax = plt.subplots(figsize=(5.5, 5.5))
     plt.tight_layout(pad=3.0)
 

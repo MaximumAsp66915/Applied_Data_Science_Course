@@ -1,8 +1,18 @@
+# Data Manipulation & Processing
 numpy
 pandas
+
+# Visualization Canvas Layout Engines
 matplotlib
 seaborn
 plotly
+
+# Machine Learning & Metrics
 scikit-learn
+
+# PyTorch Deep Learning & Computer Vision Core Ecosystem
 torch
 torchvision
+
+# Utilities & Progress Trackers
+tqdm

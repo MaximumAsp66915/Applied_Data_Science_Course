@@ -1,45 +1,79 @@
-# ADS_A02 - 🎼 ADS Homework A02 - SUTMusic Predictive Modeling
+# ADS_A03 - 🎼 Deep Learning & Neural Networks
 
 ## Overview
-This repository contains the second homework assignment (`ADS_A02`) for the Applied Data Science course. It continues the analysis of the SUTMusic dataset, focusing exclusively on **Predictive Modeling** across continuous, binary, and multiclass targets.
+This repository contains the third homework assignment for the Applied Data Science course. The notebook focuses on **deep learning workflows**, with an emphasis on understanding how modern neural network architectures behave rather than training large models for the sake of it.
+
+The main notebook, [03_Main_Analysis.ipynb](notebooks/03_Main_Analysis.ipynb), is organized into five major sections:
+
+1. **Multilayer Perceptron (MLP)** for binary classification and regression
+2. **Convolutional Neural Networks (CNNs)** for image modeling
+3. **Recurrent Neural Networks (RNNs)** with Vanilla RNN, LSTM, and GRU models
+4. **Transformer-based models** using attention architectures
+5. **Bonus research review** on machine learning models used in industry
+
+The notebook is written to be readable, modular, and easy to extend. Larger training and utility code is kept in the `src/` folder instead of being embedded directly in the notebook.
+
+## What’s Included
+
+- Clean notebook structure with section and subsection headings
+- PyTorch-based deep learning experiments
+- Training and validation curves for model comparison
+- Experiments on optimization, architecture, regularization, augmentation, and transfer learning
+- A bonus industry research section with short written analysis
 
 ## Project Structure
-- `data/`: Contains raw, external, and processed data (`reg_tracks.csv`, etc.). Note: Large data files are git-ignored.
-- `src/`: Reusable Python modules containing our robust data preprocessing pipelines and feature engineering specifically built for regression/classification stability.
-- `notebooks/`: Jupyter notebooks (`02_Main_Analysis.ipynb`) containing the principal predictive analysis, tuning, and evaluation frameworks.
-- `pre_provided/`: Provided resources and homework instructions.
 
-## Analysis Portions
+- `data/`: Raw, external, and processed datasets
+- `notebooks/`: The main analysis notebook and supporting notebooks
+- `src/`: Reusable code for modeling, preprocessing, visualization, and collection utilities
+- `pre_provided/`: Course-provided material and supporting resources
+- `requirements.txt`: Python dependencies for the project
 
-### 1️⃣ Regression Methods
-Predicting continuous target variables (such as track total reactions/popularity) utilizing:
-- Linear Regression (Baseline)
-- Ridge & Lasso Regression (L2 / L1 Regularization)
-- Kernel Ridge Regression
-- Decision Tree Regressors
+## Main Notebook Sections
 
-### 2️⃣ Binary Classification Methods
-Grouping tracks into binary states of "Popular" vs "Not Popular" utilizing threshold modeling and evaluating with Confusion Matrices and ROC/AUC across:
-- Logistic Regression
-- Support Vector Machines (Linear & Kernel RBF)
-- K-Nearest Neighbors (Tuned `k`)
-- Decision Trees (Tuned `max_depth`)
-- Random Forest 
+### 1️⃣ Multilayer Perceptron (MLP)
+Binary classification and regression experiments using fully connected networks. This section also covers optimizer choices, learning-rate behavior, depth/width changes, activation functions, normalization, dropout, and other regularization techniques. 🧠
 
-### 3️⃣ Multiclass Classification & Boosting
-Splitting tracks into 4 distinct groups (`Neutral`, `Loved`, `Hated`, `Controversial`) via reactions/likes/dislikes ratios to test multi-label capacities:
-- Multiclass SVM & Logistic Regression (OVR / Multinomial)
-- Tuned Multiclass KNN & Decision Trees
-- **Advanced Ensemble & Boosting Methods:** Random Forest, XGBoost, LightGBM, AdaBoost, and CatBoost.
-- Focus on `Macro F1-Score`, `Log Loss`, and Class-specific precision metrics.
+### 2️⃣ Convolutional Neural Networks (CNNs)
+Image modeling experiments using a custom CNN and transfer learning. This section includes kernel size, stride, pooling, depth, data augmentation, and pretrained model comparisons. 🖼️
 
-### 4️⃣ Theoretical Discussions
-Deep theoretical dives into the math and rationale driving the implementations (Bias-Variance tradeoff, MAPE unreliability, Overfitting constraints, Macro vs Micro variations).
+### 3️⃣ Recurrent Neural Networks (RNNs)
+Sequence modeling experiments with Vanilla RNN, LSTM, and GRU. The notebook compares sequence length, hidden size, stacked layers, bidirectionality, and dropout. ⏳
 
-## Instructions to Run
-1. Install dependencies: `pip install -r requirements.txt`
-2. Make sure you have exported your extracted dataset into the `data/raw` folder.
-3. Run the main notebook located at `notebooks/02_Main_Analysis.ipynb`
+### 4️⃣ Transformer Models
+Attention-based sequence modeling using a transformer encoder approach. This section compares Transformer behavior with recurrent models and discusses self-attention, positional encoding, and computational trade-offs. 🤖
 
-## About the Data
-The dataset contains historical records from the SUTMusic ecosystem spanning a full year (May 2024 to May 2025). It has been carefully structured through `pandas` data engineering to collapse complicated JSON string arrays into clean integer parameters for the estimators. 
+### 5️⃣ Bonus: Research Review
+A short industry-oriented review on the machine learning models most widely used in practice, plus a forward-looking discussion about how that distribution may change over the next 5–10 years. 🎖️
+
+## How to Run
+
+1. Install the dependencies:
+	```bash
+	pip install -r requirements.txt
+	```
+2. Make sure the expected datasets are available inside the `data/` directory; In case some where missing due to their size the download link for them is provided inside the notebook like:
+
+<p align="center">
+  <a href="https://www.kaggle.com/datasets/puneet6060/intel-image-classification"><img src="https://img.shields.io/badge/Kaggle-View_Dataset-blue?logo=Kaggle&logoColor=white" alt="View on Kaggle"></a>
+  <a href="https://www.kaggle.com/datasets/isaaclopgu/nvidia-stock-data-daily-updated"><img src="https://img.shields.io/badge/Kaggle-View_Dataset-blue?logo=Kaggle&logoColor=white" alt="View on Kaggle"></a>
+</p>
+
+3. Open and run [03_Main_Analysis.ipynb](notebooks/03_Main_Analysis.ipynb).
+
+## Notes
+
+- PyTorch is used as the main deep learning framework in this homework.
+- The notebook assumes a local environment with standard scientific Python packages installed.
+- Some sections are intentionally modular so that heavier code can be moved into `src/modeling`, `src/preprocessing`, or `src/visualization` as the project grows.
+- You are advised to use `GPU` for training the models inside this document especially for the `CNN` section.
+- Some sections need heavy training so they might take a long time to train some models, Be Patient!
+- Some numbers that are reported in the document might change with the new run, but the whole concpet would remain the same.
+
+## Dataset Scope
+
+1. **Tracks Dataset**: The notebook uses course data already prepared in earlier homeworks for the MLP section, and separate image and sequence datasets for the CNN and RNN/Transformer sections. This keeps the assignment focused on model behavior, architecture changes, and interpretation rather than data collection.
+2. **Image Dataset**: From kaggle, and has been used for the `2th section`.
+3. **Nvidia Stock Price Dataset**: Again from kaggle, and has been used for the `2th section`.
+
+
