@@ -1,0 +1,25 @@
+# Data Manipulation & Processing
+numpy
+pandas
+
+# Visualization Canvas Layout Engines
+matplotlib
+seaborn
+plotly
+
+# Machine Learning, Imbalance Handling & Metrics
+scikit-learn
+imbalanced-learn
+
+# PyTorch Deep Learning & Computer Vision Core Ecosystem
+torch
+torchvision
+
+# Explainable AI (XAI) Frameworks
+shap
+lime
+eli5
+
+# Utilities & Progress Trackers
+tqdm
+joblib
