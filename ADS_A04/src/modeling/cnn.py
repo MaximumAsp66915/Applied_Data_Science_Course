@@ -1,6 +1,28 @@
 import torch
 import torch.nn as nn
 from torchvision.models import resnet18, ResNet18_Weights
+import numpy as np
+
+
+def generate_gradcam(model, input_tensor, class_idx):
+    global gradients, activations
+    model.zero_grad()
+    output = model(input_tensor.to(device))
+    
+    score = output[0][class_idx]
+    score.backward()
+    
+    # Pool the gradients across channels
+    pooled_gradients = torch.mean(gradients, dim=[0, 2, 3])
+    
+    # Weight the channels by the pooled gradients
+    for i in range(activations.shape[1]):
+        activations[:, i, :, :] *= pooled_gradients[i]
+        
+    heatmap = torch.mean(activations, dim=1).squeeze().detach().cpu().numpy()
+    heatmap = np.maximum(heatmap, 0) # Apply ReLU
+    heatmap /= np.max(heatmap) if np.max(heatmap) != 0 else 1
+    return heatmap
 
 class GeneralCNN(nn.Module):
     """
