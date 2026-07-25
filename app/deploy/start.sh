@@ -54,7 +54,7 @@ cleanup() {
 trap cleanup TERM INT
 
 # 1) Telegram bot
-nohup python3 main.py >> "$APP_LOG" 2>&1 &
+nohup python main.py >> "$APP_LOG" 2>&1 &
 PIDS+=("$!")
 
 # 2) FastAPI webapp
