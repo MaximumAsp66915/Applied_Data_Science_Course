@@ -1,0 +1,44 @@
+# SUTMusic app stack -- systemd USER unit.
+#
+# Deliberately a *user* unit, not a system-level one: it lives in
+# ~/.config/systemd/user/ and is controlled with `systemctl --user ...`,
+# which requires no sudo/root at all. That's what lets the GitHub Action
+# SSH in as a normal, non-root user (e.g. "max") and run
+# `systemctl --user restart sutmusic.service` directly after every deploy.
+#
+# One-time setup on the server (as the deploy user, e.g. max):
+#   mkdir -p ~/.config/systemd/user
+#   cp /srv/bots/telegram/SUTMusic_app/app/deploy/sutmusic.service \
+#      ~/.config/systemd/user/sutmusic.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now sutmusic.service
+#   loginctl enable-linger max   # <- lets the service keep running after
+#                                #    the SSH session that started it ends,
+#                                #    and lets it start again on reboot even
+#                                #    without an interactive login
+#
+# After that, the GitHub Action just re-runs:
+#   systemctl --user daemon-reload
+#   systemctl --user restart sutmusic.service
+# on every deploy that touches app/.
+
+[Unit]
+Description=SUTMusic app stack (bot, webapp, frontend preview, cloudflared tunnel)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/bots/telegram/SUTMusic_app/app
+ExecStart=/srv/bots/telegram/SUTMusic_app/app/deploy/start.sh
+Restart=always
+RestartSec=5
+# start.sh already tears down its own children on TERM (see its trap), so
+# a plain TERM to the whole cgroup is enough on stop/restart.
+KillMode=control-group
+TimeoutStopSec=20
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

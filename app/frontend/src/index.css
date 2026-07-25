@@ -1,0 +1,75 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink text-paper font-sans antialiased bg-grain;
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: rgba(124, 92, 252, 0.35);
+}
+
+/* Hide scrollbars on rollable rails but keep them scrollable */
+.rail {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.rail::-webkit-scrollbar {
+  display: none;
+}
+
+/* Focus visibility kept intentionally strong for accessibility */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid #a78bfa;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+.eyebrow {
+  @apply text-[11px] tracking-[0.18em] uppercase text-muted font-semibold;
+}
+
+.card {
+  @apply bg-surface border border-line/60 rounded-xl2;
+}
+
+.tap {
+  @apply active:scale-[0.97] transition-transform duration-150;
+}
+
+/* Reaction waveform static bars, used as decorative signature motif */
+.wavebars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 14px;
+}
+.wavebars span {
+  width: 2px;
+  border-radius: 2px;
+  background: currentColor;
+  display: inline-block;
+}

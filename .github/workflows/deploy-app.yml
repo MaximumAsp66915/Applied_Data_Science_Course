@@ -1,0 +1,82 @@
+name: Deploy app to server
+
+# Only fires when something under app/ actually changed -- pushes that only
+# touch engine/ or repo-root files (this workflow included) don't trigger a
+# deploy.
+on:
+  push:
+    branches: [project]
+    paths:
+      - "app/**"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      # .venv on the server is provisioned once, by hand, and reused across
+      # deploys -- never overwritten here. node_modules is similarly left
+      # to `npm install` (run by start.sh itself) rather than shipped over
+      # the wire. The 5 runtime log/url files are excluded so a deploy
+      # never clobbers whatever the currently-running stack is writing to.
+      - name: Sync app/ to the server
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key -p $SSH_PORT -o StrictHostKeyChecking=yes" \
+            --exclude ".venv" \
+            --exclude "node_modules" \
+            --exclude "__pycache__" \
+            --exclude "*.pyc" \
+            --exclude "app.log" \
+            --exclude "webapp.log" \
+            --exclude "frontend.log" \
+            --exclude "cloudflare.log" \
+            --exclude "url.txt" \
+            ./app/ "$SSH_USER@$SSH_HOST:/srv/bots/telegram/SUTMusic_app/app/"
+
+      - name: Restore secrets and restart the service
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" '
+            set -euo pipefail
+            BASE=/srv/bots/telegram/SUTMusic_app
+
+            mkdir -p "$BASE/app/db/internal_db" "$BASE/app/db/external_db"
+            cp "$BASE/secrets/internal_db_session.session" "$BASE/app/db/internal_db/internal_db_session.session"
+            cp "$BASE/secrets/external_db_session.session" "$BASE/app/db/external_db/external_db_session.session"
+            cp "$BASE/secrets/.env" "$BASE/app/.env"
+            dp "$BASE/secrets/collect_data.session" "$BASE/app/collect_data.session"
+
+            # Keep the installed unit in sync with whatever shipped in this deploy.
+            mkdir -p ~/.config/systemd/user
+            cp "$BASE/app/deploy/sutmusic.service" ~/.config/systemd/user/sutmusic.service
+            chmod +x "$BASE/app/deploy/start.sh"
+
+            systemctl --user daemon-reload
+            systemctl --user enable sutmusic.service
+            systemctl --user restart sutmusic.service
+          '
+
+      - name: Clean up SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
