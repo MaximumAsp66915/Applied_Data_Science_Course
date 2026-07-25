@@ -258,8 +258,8 @@ async def get_top_users(limit: int = 10) -> list[Row]:
 
 async def get_user_relations(user_id: int, limit: int = 10) -> dict:
     """Powers the "Community pulse" section of the profile page: who reacts
-    to this user's tracks the most, correlation with other users, who this
-    user reacts to the most, and their favorite/least-favorite artists."""
+    to this user's tracks the most (in each direction), who this user
+    reacts to the most (in each direction), and their favorite artists."""
     top_likers = await _fetch_all(
         """
         SELECT u.user_id, u.first_name, u.last_name, u.username, u.profile_photo,
@@ -284,38 +284,26 @@ async def get_user_relations(user_id: int, limit: int = 10) -> dict:
         """,
         user_id, limit,
     )
-    most_correlated = await _fetch_all(
-        """
-        WITH mine AS (
-            SELECT track_id, sentiment FROM track_reactions WHERE user_id = $1
-        ),
-        shared AS (
-            SELECT r.user_id,
-                   COUNT(*) FILTER (WHERE r.sentiment = m.sentiment) AS agreements,
-                   COUNT(*) AS overlap
-            FROM track_reactions r
-            JOIN mine m ON m.track_id = r.track_id
-            WHERE r.user_id != $1
-            GROUP BY r.user_id
-            HAVING COUNT(*) >= 3
-        )
-        SELECT u.user_id, u.first_name, u.last_name, u.username, u.profile_photo,
-               ROUND(100.0 * s.agreements / s.overlap) AS metric
-        FROM shared s
-        JOIN users u ON u.user_id = s.user_id
-        ORDER BY metric DESC, s.overlap DESC
-        LIMIT $2;
-        """,
-        user_id, limit,
-    )
-    most_reacted_to = await _fetch_all(
+    gave_most_likes_to = await _fetch_all(
         """
         SELECT u.user_id, u.first_name, u.last_name, u.username, u.profile_photo,
                COUNT(*) AS metric
         FROM track_reactions r
         JOIN tracks t ON t.id = r.track_id
         JOIN users u ON u.user_id = ANY(t.uploaded_by)
-        WHERE r.user_id = $1 AND u.user_id != $1
+        WHERE r.user_id = $1 AND r.sentiment = 'like' AND u.user_id != $1
+        GROUP BY u.user_id ORDER BY metric DESC LIMIT $2;
+        """,
+        user_id, limit,
+    )
+    gave_most_dislikes_to = await _fetch_all(
+        """
+        SELECT u.user_id, u.first_name, u.last_name, u.username, u.profile_photo,
+               COUNT(*) AS metric
+        FROM track_reactions r
+        JOIN tracks t ON t.id = r.track_id
+        JOIN users u ON u.user_id = ANY(t.uploaded_by)
+        WHERE r.user_id = $1 AND r.sentiment = 'dislike' AND u.user_id != $1
         GROUP BY u.user_id ORDER BY metric DESC LIMIT $2;
         """,
         user_id, limit,
@@ -331,25 +319,13 @@ async def get_user_relations(user_id: int, limit: int = 10) -> dict:
         """,
         user_id, limit,
     )
-    top_disliked_artists = await _fetch_all(
-        """
-        SELECT a.*, COUNT(*) AS metric
-        FROM track_reactions r
-        JOIN tracks t ON t.id = r.track_id
-        JOIN artists a ON a.id = ANY(t.artists_id)
-        WHERE r.user_id = $1 AND r.sentiment = 'dislike'
-        GROUP BY a.id ORDER BY metric DESC LIMIT $2;
-        """,
-        user_id, limit,
-    )
 
     return {
         "top_likers": top_likers or [],
         "top_dislikers": top_dislikers or [],
-        "most_correlated": most_correlated or [],
-        "most_reacted_to": most_reacted_to or [],
+        "gave_most_likes_to": gave_most_likes_to or [],
+        "gave_most_dislikes_to": gave_most_dislikes_to or [],
         "top_liked_artists": top_liked_artists or [],
-        "top_disliked_artists": top_disliked_artists or [],
     }
 
 

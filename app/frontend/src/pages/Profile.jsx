@@ -169,17 +169,6 @@ export default function Profile() {
             ))}
           </RollableRail>
 
-          {/* --- Statistics: relations to the rest of the group --- */}
-          <section className="mt-8 px-5">
-            <p className="eyebrow mb-1">Community pulse</p>
-            <h2 className="font-display text-lg text-paper mb-3">How {isSelf ? "you" : "they"} connect with the group</h2>
-          </section>
-
-          <RollableList title="Gave the most likes" people={relations?.top_likers} metricLabel="likes given" />
-          <RollableList title="Gave the most dislikes" people={relations?.top_dislikers} metricLabel="dislikes given" />
-          <RollableList title="Highest correlation" people={relations?.most_correlated} metricLabel="match" />
-          <RollableList title="Reacted most to" people={relations?.most_reacted_to} metricLabel="reactions" />
-
           <RollableRail
             eyebrow="Taste breakdown"
             title="Artists liked most"
@@ -190,15 +179,16 @@ export default function Profile() {
             ))}
           </RollableRail>
 
-          <RollableRail
-            eyebrow="Taste breakdown"
-            title="Artists disliked most"
-            empty={!loading && "No disliked artists yet."}
-          >
-            {relations?.top_disliked_artists?.map((a) => (
-              <ArtistRailCard key={a.id} artist={a} />
-            ))}
-          </RollableRail>
+          {/* --- Statistics: relations to the rest of the group --- */}
+          <section className="mt-8 px-5">
+            <p className="eyebrow mb-1">Community pulse</p>
+            <h2 className="font-display text-lg text-paper mb-3">How {isSelf ? "you" : "they"} connect with the group</h2>
+          </section>
+
+          <RollableList title="Got most likes from" people={relations?.top_likers} metricLabel="likes given" />
+          <RollableList title="Got most dislikes from" people={relations?.top_dislikers} metricLabel="dislikes given" />
+          <RollableList title="Give the most likes to" people={relations?.gave_most_likes_to} metricLabel="likes given" />
+          <RollableList title="Give the most dislikes to" people={relations?.gave_most_dislikes_to} metricLabel="dislikes given" />
         </>
       )}
     </div>

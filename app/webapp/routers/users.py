@@ -130,8 +130,8 @@ async def get_user_stats(user_id: int, tg_user: TelegramUser | None = Depends(op
 @router.get("/{user_id}/relations")
 async def get_user_relations(user_id: int, tg_user: TelegramUser | None = Depends(optional_telegram_user)):
     """GET /api/users/{user_id}/relations -- the "Community pulse" section:
-    who reacts to this user the most, correlation with other users, who this
-    user reacts to the most, and their favorite/least-favorite artists."""
+    who reacts to this user the most (per direction), who this user reacts
+    to the most (per direction), and their favorite artists."""
     viewer_id = await _resolve_viewer_id(tg_user)
     owner_row = await repo.get_user(user_id)
     if not owner_row:
@@ -143,8 +143,7 @@ async def get_user_relations(user_id: int, tg_user: TelegramUser | None = Depend
     return {
         "top_likers": [serialize_relation_person(r) for r in data["top_likers"]],
         "top_dislikers": [serialize_relation_person(r) for r in data["top_dislikers"]],
-        "most_correlated": [serialize_relation_person(r) for r in data["most_correlated"]],
-        "most_reacted_to": [serialize_relation_person(r) for r in data["most_reacted_to"]],
+        "gave_most_likes_to": [serialize_relation_person(r) for r in data["gave_most_likes_to"]],
+        "gave_most_dislikes_to": [serialize_relation_person(r) for r in data["gave_most_dislikes_to"]],
         "top_liked_artists": [await serialize_artist_brief(a) for a in data["top_liked_artists"]],
-        "top_disliked_artists": [await serialize_artist_brief(a) for a in data["top_disliked_artists"]],
     }

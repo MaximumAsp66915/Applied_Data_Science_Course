@@ -11,3 +11,4 @@
 /.idea/
 /app/collect_data.session
 /app/.venv
+/app/frontend/node_modules/
