@@ -65,7 +65,7 @@ jobs:
             cp "$BASE/secrets/internal_db_session.session" "$BASE/app/db/internal_db/internal_db_session.session"
             cp "$BASE/secrets/external_db_session.session" "$BASE/app/db/external_db/external_db_session.session"
             cp "$BASE/secrets/.env" "$BASE/app/.env"
-            dp "$BASE/secrets/collect_data.session" "$BASE/app/collect_data.session"
+            cp "$BASE/secrets/collect_data.session" "$BASE/app/collect_data.session"
 
             # Keep the installed unit in sync with whatever shipped in this deploy.
             mkdir -p ~/.config/systemd/user
