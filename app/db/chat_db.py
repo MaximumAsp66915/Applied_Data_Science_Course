@@ -136,4 +136,3 @@ class Chat_DB:
         else:
             text = f"""[{self.__class__.__name__} Object] -> chat: {self.chat_id} (from {self.db.__class__.__name__})"""
         return text
-
