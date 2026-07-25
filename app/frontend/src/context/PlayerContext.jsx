@@ -138,18 +138,28 @@ export function PlayerProvider({ children }) {
   const react = useCallback(
     async (reaction) => {
       if (!track) return;
+      const prevReaction = myReaction;
       const next = myReaction === reaction ? null : reaction; // toggling clears it
       setMyReaction(next);
       setTrack((t) => {
         if (!t) return t;
-        const likes = t.likes_count + (next === "like" ? 1 : 0) - (myReaction === "like" ? 1 : 0);
-        const dislikes = t.dislikes_count + (next === "dislike" ? 1 : 0) - (myReaction === "dislike" ? 1 : 0);
+        const likes = t.likes_count + (next === "like" ? 1 : 0) - (prevReaction === "like" ? 1 : 0);
+        const dislikes = t.dislikes_count + (next === "dislike" ? 1 : 0) - (prevReaction === "dislike" ? 1 : 0);
         return { ...t, likes_count: likes, dislikes_count: dislikes };
       });
       try {
         await api.reactToTrack(track.id, next);
-      } catch {
-        // optimistic update stands; a toast/retry could go here
+      } catch (err) {
+        // The save actually failed -- put the UI back the way it was
+        // rather than showing a reaction that was never persisted.
+        console.error("Failed to save reaction", err);
+        setMyReaction(prevReaction);
+        setTrack((t) => {
+          if (!t) return t;
+          const likes = t.likes_count + (prevReaction === "like" ? 1 : 0) - (next === "like" ? 1 : 0);
+          const dislikes = t.dislikes_count + (prevReaction === "dislike" ? 1 : 0) - (next === "dislike" ? 1 : 0);
+          return { ...t, likes_count: likes, dislikes_count: dislikes };
+        });
       }
     },
     [track, myReaction]

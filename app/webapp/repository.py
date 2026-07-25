@@ -80,6 +80,11 @@ async def _reaction_id_for_sentiment(sentiment: str) -> Optional[int]:
         matches = await ReactionType.search_reactions(conditions={"sentiment": ("=", sentiment)}, limit=1)
         rt = matches[0] if matches else None
     if rt is None:
+        # Neither the default emoji nor any row with this sentiment exists in
+        # reaction_types yet -- create it explicitly rather than giving up.
+        result = await ReactionType.create(_DEFAULT_EMOJI[sentiment], sentiment)
+        rt = result.data if result.success else None
+    if rt is None:
         return None
     rid = await rt.get_parameter("id")
     if rid is None:
@@ -406,15 +411,18 @@ async def set_reaction(track_id: int, user_id: int, reaction: Optional[str]) -> 
             await existing.delete()
     else:
         reaction_id = await _reaction_id_for_sentiment(reaction)
+        if reaction_id is None:
+            raise RuntimeError(f"Could not resolve a reaction_type id for sentiment={reaction!r}")
         if existing:
             await existing.update_parameter("sentiment", reaction)
-            if reaction_id:
-                await existing.update_parameter("reaction_id", reaction_id)
+            await existing.update_parameter("reaction_id", reaction_id)
         else:
-            await TrackReaction.create(
+            result = await TrackReaction.create(
                 track_id=track_id, user_id=user_id, reaction_id=reaction_id,
                 sentiment=reaction, on_user_id=owner_ids[0] if owner_ids else None,
             )
+            if not result.success:
+                raise RuntimeError(f"Failed to save track reaction: {result.error_message}")
 
     like_delta = (1 if reaction == "like" else 0) - (1 if previous == "like" else 0)
     dislike_delta = (1 if reaction == "dislike" else 0) - (1 if previous == "dislike" else 0)
@@ -441,18 +449,18 @@ async def set_reaction(track_id: int, user_id: int, reaction: Optional[str]) -> 
         for artist_reaction in existing_artist_reactions.values():
             await artist_reaction.delete()
     else:
-        reaction_id = await _reaction_id_for_sentiment(reaction)
         for artist_id in artist_ids:
             existing_ar = existing_artist_reactions.get(artist_id)
             if existing_ar:
                 await existing_ar.update_parameter("sentiment", reaction)
-                if reaction_id:
-                    await existing_ar.update_parameter("reaction_id", reaction_id)
+                await existing_ar.update_parameter("reaction_id", reaction_id)
             else:
-                await ArtistReaction.create(
+                result = await ArtistReaction.create(
                     artist_id=artist_id, user_id=user_id, reaction_id=reaction_id,
                     sentiment=reaction, on_user_id=owner_ids[0] if owner_ids else None,
                 )
+                if not result.success:
+                    raise RuntimeError(f"Failed to save artist reaction: {result.error_message}")
 
     if like_delta or dislike_delta or reaction_delta:
         for artist_id in artist_ids:
