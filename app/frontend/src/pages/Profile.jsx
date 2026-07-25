@@ -185,10 +185,7 @@ export default function Profile() {
             <h2 className="font-display text-lg text-paper mb-3">How {isSelf ? "you" : "they"} connect with the group</h2>
           </section>
 
-          <RollableList title="Got most likes from" people={relations?.top_likers} metricLabel="likes given" />
-          <RollableList title="Got most dislikes from" people={relations?.top_dislikers} metricLabel="dislikes given" />
-          <RollableList title="Give the most likes to" people={relations?.gave_most_likes_to} metricLabel="likes given" />
-          <RollableList title="Give the most dislikes to" people={relations?.gave_most_dislikes_to} metricLabel="dislikes given" />
+          <CommunityPulseLists relations={relations} />
         </>
       )}
     </div>
@@ -218,20 +215,48 @@ function Stat({ label, value, icon: Icon, tone = "text-paper" }) {
   );
 }
 
+// Below 3 entries, a list isn't really telling anyone anything yet -- rather
+// than showing four separate "not enough data" cards, whichever of the four
+// relation lists are still this sparse get folded into one combined line.
+const MIN_ENTRIES_TO_SHOW = 3;
+
+function CommunityPulseLists({ relations }) {
+  const candidates = [
+    { key: "top_likers", title: "Got most likes from", metricLabel: "likes given" },
+    { key: "top_dislikers", title: "Got most dislikes from", metricLabel: "dislikes given" },
+    { key: "gave_most_likes_to", title: "Give the most likes to", metricLabel: "likes given" },
+    { key: "gave_most_dislikes_to", title: "Give the most dislikes to", metricLabel: "dislikes given" },
+  ];
+
+  const populated = candidates.filter((c) => (relations?.[c.key]?.length ?? 0) >= MIN_ENTRIES_TO_SHOW);
+  const sparse = candidates.filter((c) => (relations?.[c.key]?.length ?? 0) < MIN_ENTRIES_TO_SHOW);
+
+  return (
+    <>
+      {populated.map((c) => (
+        <RollableList key={c.key} title={c.title} people={relations[c.key]} metricLabel={c.metricLabel} />
+      ))}
+
+      {sparse.length > 0 && (
+        <section className="mt-6">
+          <div className="mx-5 card px-4 py-5 text-center text-sm text-muted">
+            Not enough data yet for {sparse.length === candidates.length ? "the community pulse" : sparse.map((c) => c.title.toLowerCase()).join(", ")}.
+          </div>
+        </section>
+      )}
+    </>
+  );
+}
+
 function RollableList({ title, people, metricLabel }) {
-  const has = people && people.length > 0;
   return (
     <section className="mt-6">
       <p className="px-5 font-display text-base text-paper mb-2">{title}</p>
-      {has ? (
-        <div className="flex flex-col">
-          {people.map((p, i) => (
-            <UserRow key={p.user_id} person={p} rank={i + 1} metric={p.metric} metricLabel={metricLabel} />
-          ))}
-        </div>
-      ) : (
-        <div className="mx-5 card px-4 py-5 text-center text-sm text-muted">Not enough data yet.</div>
-      )}
+      <div className="flex flex-col">
+        {people.map((p, i) => (
+          <UserRow key={p.user_id} person={p} rank={i + 1} metric={p.metric} metricLabel={metricLabel} />
+        ))}
+      </div>
     </section>
   );
 }

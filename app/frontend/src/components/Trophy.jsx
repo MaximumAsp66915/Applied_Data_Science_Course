@@ -25,8 +25,11 @@ export function TrophyShelf({ trophies }) {
   return (
     <div className="rail flex gap-3 overflow-x-auto px-5 pb-1 snap-x snap-mandatory">
       {trophies.map((t) => (
-        <div key={t.id} className="snap-start shrink-0 w-24 card p-3 flex flex-col items-center gap-2">
-          <div className="w-10 h-10 rounded-full bg-pulse/15 flex items-center justify-center">
+        <div
+          key={t.id}
+          className="snap-start shrink-0 w-24 rounded-xl2 p-3 flex flex-col items-center gap-2 bg-gradient-to-b from-pulse/15 via-surface to-surface border border-pulse/25 shadow-[0_0_18px_-6px_rgba(250,204,21,0.35)]"
+        >
+          <div className="w-10 h-10 rounded-full bg-pulse/20 ring-1 ring-pulse/40 flex items-center justify-center">
             <TrophyIcon size={18} className="text-pulse" />
           </div>
           <p className="text-[11px] text-center text-paper leading-tight">{t.label}</p>

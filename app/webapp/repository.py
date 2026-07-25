@@ -48,6 +48,7 @@ from model.objects.chat import Chat
 from model.objects.user import User
 from model.SUTMusic.track import Track
 from model.SUTMusic.artist import Artist
+from model.SUTMusic.artist_reaction import ArtistReaction
 from model.SUTMusic.track_reaction import TrackReaction
 from model.SUTMusic.reaction_type import ReactionType
 from model.SUTMusic.user_musicbot_state import UserMusicBotState
@@ -425,6 +426,43 @@ async def set_reaction(track_id: int, user_id: int, reaction: Optional[str]) -> 
         await track.update_count_by("dislikes_count", dislike_delta)
     if reaction_delta:
         await track.update_count_by("reactions_count", reaction_delta)
+
+    artist_ids = [int(aid) for aid in (await track.get_parameter("artists_id") or [])]
+    existing_artist_reactions: dict[int, Any] = {}
+    if artist_ids:
+        for artist_id in artist_ids:
+            found = await ArtistReaction.search_reactions(
+                conditions={"artist_id": ("=", artist_id), "user_id": ("=", user_id)}, limit=1
+            )
+            if found:
+                existing_artist_reactions[artist_id] = found[0]
+
+    if reaction is None:
+        for artist_reaction in existing_artist_reactions.values():
+            await artist_reaction.delete()
+    else:
+        reaction_id = await _reaction_id_for_sentiment(reaction)
+        for artist_id in artist_ids:
+            existing_ar = existing_artist_reactions.get(artist_id)
+            if existing_ar:
+                await existing_ar.update_parameter("sentiment", reaction)
+                if reaction_id:
+                    await existing_ar.update_parameter("reaction_id", reaction_id)
+            else:
+                await ArtistReaction.create(
+                    artist_id=artist_id, user_id=user_id, reaction_id=reaction_id,
+                    sentiment=reaction, on_user_id=owner_ids[0] if owner_ids else None,
+                )
+
+    if like_delta or dislike_delta or reaction_delta:
+        for artist_id in artist_ids:
+            artist = Artist(artist_id)
+            if like_delta:
+                await artist.update_count_by(param="likes_count", value=like_delta)
+            if dislike_delta:
+                await artist.update_count_by(param="dislikes_count", value=dislike_delta)
+            if reaction_delta:
+                await artist.update_count_by(param="reactions_count", value=reaction_delta)
 
     async def _adjust_state(uid: int, likes_key: str, dislikes_key: str, reactions_key: str):
         state = await UserMusicBotState.get_by_user_id(uid)
