@@ -88,7 +88,7 @@ PIDS+=("$!")
         sleep 2
     done
 ) &
-PIDS+=("$!")
+# PIDS+=("$!") ## Better to comment it due to rate limit and else 
 
 # --- Supervise: if any of the four main processes dies, tear everything
 #     down and exit non-zero so systemd restarts the whole stack together ---
