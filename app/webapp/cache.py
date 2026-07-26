@@ -32,3 +32,16 @@ top_lists_cache = AutoExpiringDict(ttl_seconds=3600, cleanup_interval=300, max_k
 # than the top-lists cache -- 6 hours -- to keep us well under Last.fm's
 # limits even under heavy concurrent traffic.
 lastfm_cache = AutoExpiringDict(ttl_seconds=6 * 3600, cleanup_interval=600, max_keys=20000)
+
+# MusicBrainz artist-name -> MBID lookups (webapp/fanart.py). Rate-limited
+# to a hard 1 req/s upstream, and an artist's MBID never changes once
+# resolved, so this is cached far longer than anything else here -- 7 days
+# -- purely to keep the (already one-time-per-artist, thanks to the
+# enrichment queue's lastfm_synced flag) lookup from ever being repeated
+# for the same artist within a reasonable span.
+mbid_cache = AutoExpiringDict(ttl_seconds=7 * 24 * 3600, cleanup_interval=3600, max_keys=20000)
+
+# fanart.tv artist cover-art lookups (webapp/fanart.py), keyed by artist
+# name. Same 6-hour TTL reasoning as lastfm_cache -- cover art for a given
+# artist doesn't change on any timescale this app cares about.
+fanart_cache = AutoExpiringDict(ttl_seconds=6 * 3600, cleanup_interval=600, max_keys=20000)

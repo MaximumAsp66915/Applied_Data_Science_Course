@@ -35,6 +35,7 @@ import random
 import httpx
 from . import schema
 from . import lastfm as lastfm_client
+from . import fanart as fanart_client
 from . import enrichment_queue
 from .cache import top_lists_cache
 from .db_conn import conn
@@ -850,12 +851,15 @@ async def get_cover(cover_id: int) -> Optional[Row]:
 
 
 async def get_or_refresh_lastfm_cover_url(cover_id: int) -> Optional[str]:
-    """Serves a Last.fm-backed cover's image URL, re-fetching from Last.fm
-    if the stored URL has gone stale/dead (Last.fm's CDN links can expire).
-    `cover.metadata` carries what's needed to look the image back up:
-    {"lastfm_kind": "artist"} + lastfm_artist, or {"lastfm_kind": "track"} +
-    lastfm_artist/lastfm_title. Returns None if the cover isn't Last.fm-backed
-    or can't be refreshed."""
+    """Serves an externally-linked cover's image URL, re-fetching it if the
+    stored URL has gone stale/dead (both Last.fm's and fanart.tv's CDN links
+    can expire). `cover.metadata` carries what's needed to look the image
+    back up: {"lastfm_kind": "artist"} + lastfm_artist (+ "cover_source":
+    "fanart" | "lastfm", defaulting to "lastfm" for covers created before
+    fanart.tv was wired in), or {"lastfm_kind": "track"} +
+    lastfm_artist/lastfm_title (tracks are always Last.fm-sourced -- fanart.tv
+    is only used for artist covers). Returns None if the cover isn't
+    externally-linked or can't be refreshed."""
     row = await get_cover(cover_id)
     if not row or row.get("source") != "lastfm":
         return None
@@ -871,11 +875,17 @@ async def get_or_refresh_lastfm_cover_url(cover_id: int) -> Optional[str]:
 
     metadata = row.get("metadata") or {}
     kind = metadata.get("lastfm_kind")
+    # Older covers (created before fanart.tv was wired in) won't have a
+    # cover_source recorded -- they were always Last.fm-sourced.
+    cover_source = metadata.get("cover_source", "lastfm")
     fresh_url = None
     if kind == "artist" and metadata.get("lastfm_artist"):
-        info = await lastfm_client.get_artist_info(metadata["lastfm_artist"])
-        images = (info or {}).get("images") or []
-        fresh_url = next((img.get("#text") for img in reversed(images) if img.get("#text")), None)
+        if cover_source == "fanart":
+            fresh_url = await fanart_client.get_artist_cover_url(metadata["lastfm_artist"])
+        if not fresh_url:
+            info = await lastfm_client.get_artist_info(metadata["lastfm_artist"])
+            images = (info or {}).get("images") or []
+            fresh_url = next((img.get("#text") for img in reversed(images) if img.get("#text")), None)
     elif kind == "track" and metadata.get("lastfm_artist") and metadata.get("lastfm_title"):
         info = await lastfm_client.get_track_info(metadata["lastfm_artist"], metadata["lastfm_title"])
         images = ((info or {}).get("album") or {}).get("images") or []
@@ -1059,6 +1069,14 @@ async def get_artist(artist_id: int) -> Optional[Row]:
 
 
 async def enrich_artist_with_lastfm(artist_id: int, row: Row) -> Row:
+    """Fills in whatever's still missing on an artist row: bio, genre tags,
+    related artists, and cover art. Cover art is sourced from fanart.tv
+    first (via a MusicBrainz name->MBID lookup, see webapp/fanart.py) since
+    Last.fm's own artist images are frequently missing or just its
+    placeholder -- Last.fm's image list is only used as a fallback if
+    fanart.tv has nothing. Everything else (bio, tags, related artists)
+    still comes exclusively from Last.fm.
+    """
     metadata = row.get("metadata") or {}
     if row.get("description") and row.get("cover_id") and metadata.get("lastfm_synced"):
         return row
@@ -1067,28 +1085,41 @@ async def enrich_artist_with_lastfm(artist_id: int, row: Row) -> Row:
     if not name:
         return row
 
-    info = await lastfm_client.get_artist_info(name)
-    if not info:
-        return row
-
     artist = await Artist.get_by_id(artist_id)
     if artist is None:
         return row
 
-    if not row.get("description") and info.get("bio", {}).get("summary"):
+    # Fetched regardless of whether fanart.tv finds a cover -- still needed
+    # for bio/genres/related-artists below, and used as the cover fallback.
+    info = await lastfm_client.get_artist_info(name)
+
+    if not row.get("description") and info and info.get("bio", {}).get("summary"):
         await artist.update_parameter("description", info["bio"]["summary"])
         row["description"] = info["bio"]["summary"]
 
     if not row.get("cover_id"):
-        image_url = next(
-            (img.get("#text") for img in reversed(info.get("images") or []) if img.get("#text")), None
-        )
+        image_url = await fanart_client.get_artist_cover_url(name)
+        cover_source = "fanart"
+        if not image_url and info:
+            image_url = next(
+                (img.get("#text") for img in reversed(info.get("images") or []) if img.get("#text")), None
+            )
+            cover_source = "lastfm"
+
         cover_id = await _link_lastfm_cover(
-            row.get("cover_id"), image_url, metadata={"lastfm_kind": "artist", "lastfm_artist": name}
+            row.get("cover_id"),
+            image_url,
+            metadata={"lastfm_kind": "artist", "lastfm_artist": name, "cover_source": cover_source},
         )
         if cover_id:
             await artist.update_parameter("cover_id", cover_id)
             row["cover_id"] = cover_id
+
+    if not info:
+        # Last.fm itself failed -- leave lastfm_synced unset so bio/genres
+        # (and, harmlessly, another fanart.tv attempt) get retried next
+        # time; any cover fix already landed above regardless.
+        return row
 
     new_metadata = dict(metadata)
     new_metadata["lastfm_synced"] = True
