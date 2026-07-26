@@ -14,7 +14,7 @@ async def get_cover(cover_id: int):
     if not row:
         raise HTTPException(404, "Cover not found")
 
-    if row.get("source") == "lastfm":
+    if row.get("source") in ("lastfm", "fanart"):
         url = await repo.get_or_refresh_lastfm_cover_url(cover_id)
         if not url:
             raise HTTPException(404, "Cover not found")

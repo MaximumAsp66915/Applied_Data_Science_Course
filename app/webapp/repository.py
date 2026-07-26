@@ -850,6 +850,13 @@ async def get_cover(cover_id: int) -> Optional[Row]:
     return await _get_row("covers", {"id": cover_id})
 
 
+# Cover.source values that mean "we linked this to an external image
+# ourselves" (as opposed to "telegram", a real user upload) -- used to
+# decide which covers are eligible for the stale-URL refresh path below,
+# and which existing rows _link_lastfm_cover is allowed to overwrite.
+EXTERNAL_COVER_SOURCES = {"lastfm", "fanart"}
+
+
 async def get_or_refresh_lastfm_cover_url(cover_id: int) -> Optional[str]:
     """Serves an externally-linked cover's image URL, re-fetching it if the
     stored URL has gone stale/dead (both Last.fm's and fanart.tv's CDN links
@@ -861,7 +868,7 @@ async def get_or_refresh_lastfm_cover_url(cover_id: int) -> Optional[str]:
     is only used for artist covers). Returns None if the cover isn't
     externally-linked or can't be refreshed."""
     row = await get_cover(cover_id)
-    if not row or row.get("source") != "lastfm":
+    if not row or row.get("source") not in EXTERNAL_COVER_SOURCES:
         return None
 
     file_url = row.get("file_url")
@@ -909,27 +916,38 @@ async def _url_is_alive(url: str) -> bool:
         return False
 
 
-async def _link_lastfm_cover(existing_cover_id: Optional[int], image_url: Optional[str], metadata: dict) -> Optional[int]:
-    """Points a real `cover_id` column at a Last.fm image, stored as a proper
-    Cover row (source="lastfm") the same way a Telegram-uploaded cover would
-    be -- rather than a loose URL sitting in the artist/track's own metadata.
-    Reuses the existing cover row (refreshing its file_url) if one was
+async def _link_lastfm_cover(
+    existing_cover_id: Optional[int], image_url: Optional[str], metadata: dict
+) -> Optional[int]:
+    """Points a real `cover_id` column at an externally-sourced image (Last.fm
+    or fanart.tv), stored as a proper Cover row the same way a
+    Telegram-uploaded cover would be -- rather than a loose URL sitting in
+    the artist/track's own metadata. The Cover row's `source` column is set
+    to whichever service actually provided the image (`metadata["cover_source"]`,
+    defaulting to "lastfm" for track covers which are always Last.fm-sourced)
+    so routers/media.py and get_or_refresh_lastfm_cover_url know which
+    service to go back to on a refresh.
+    Reuses the existing cover row (refreshing its file_url/source) if one was
     already created this way; never touches a cover_id that points at a
     real Telegram-hosted cover someone actually uploaded."""
     if not image_url:
         return existing_cover_id
 
+    source = metadata.get("cover_source", "lastfm")
+
     if existing_cover_id:
         existing = await get_cover(existing_cover_id)
-        if existing and existing.get("source") == "lastfm":
+        if existing and existing.get("source") in EXTERNAL_COVER_SOURCES:
             cover = await Cover.get_by_id(existing_cover_id)
             if cover:
                 await cover.update_parameter("file_url", image_url)
+                await cover.update_parameter("source", source)
+                await cover.update_parameter("metadata", metadata)
             return existing_cover_id
         # existing_cover_id belongs to a real, uploaded cover -- leave it alone.
         return existing_cover_id
 
-    result = await Cover.create(uploaded_by=None, source="lastfm", metadata=metadata)
+    result = await Cover.create(uploaded_by=None, source=source, metadata=metadata)
     if not result.success:
         return None
     cover = result.data
