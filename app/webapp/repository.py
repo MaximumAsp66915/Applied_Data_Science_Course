@@ -1060,23 +1060,30 @@ def artist_enrichment_pending(row: Row, *, want_description: bool = True, want_c
 
 
 def enqueue_track_enrichment(row: Row) -> None:
-    """Drops a (deduped) Last.fm lookup job for this track onto the shared
-    background queue (see webapp/enrichment_queue.py) -- never awaited
+    """Drops a (deduped) Last.fm lookup job for this track onto the track
+    enrichment queue (see webapp/enrichment_queue.py) -- never awaited
     inline, never blocks the caller. No-op if this track was already fully
-    synced, or if an identical job is already queued/in-flight."""
+    synced, or if an identical job is already queued/in-flight.
+
+    Uses its own queue/worker pool, separate from artist enrichment's --
+    tracks only ever make one fast Last.fm call, while artist jobs can sit
+    on a slow MusicBrainz/fanart.tv round trip, so sharing a pool would let
+    a burst of slow artist lookups delay fast track covers behind them."""
     track_id = row.get("id")
     if track_id is None or not track_enrichment_pending(row):
         return
-    enrichment_queue.enqueue(f"track:{track_id}", lambda: _fetch_and_cache_track_lastfm(row))
+    enrichment_queue.track_queue.enqueue(f"track:{track_id}", lambda: _fetch_and_cache_track_lastfm(row))
 
 
 def enqueue_artist_enrichment(artist_id: int, row: Row) -> None:
-    """Drops a (deduped) Last.fm lookup job for this artist onto the shared
-    background queue. No-op if already fully synced or already queued."""
+    """Drops a (deduped) Last.fm + MusicBrainz/fanart.tv lookup job for this
+    artist onto the artist enrichment queue -- its own queue/worker pool,
+    separate from track enrichment's (see enqueue_track_enrichment's
+    docstring). No-op if already fully synced or already queued."""
     description_pending, cover_pending = artist_enrichment_pending(row)
     if not (description_pending or cover_pending):
         return
-    enrichment_queue.enqueue(f"artist:{artist_id}", lambda: enrich_artist_with_lastfm(artist_id, row))
+    enrichment_queue.artist_queue.enqueue(f"artist:{artist_id}", lambda: enrich_artist_with_lastfm(artist_id, row))
 
 # ---------------------------------------------------------------------------
 # Artists
