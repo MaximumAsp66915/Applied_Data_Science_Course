@@ -32,6 +32,7 @@ Result, not a list).
 from __future__ import annotations
 import asyncio
 import random
+import time
 import httpx
 from . import schema
 from . import lastfm as lastfm_client
@@ -1085,6 +1086,170 @@ def enqueue_artist_enrichment(artist_id: int, row: Row) -> None:
         return
     enrichment_queue.artist_queue.enqueue(f"artist:{artist_id}", lambda: enrich_artist_with_lastfm(artist_id, row))
 
+
+# ---------------------------------------------------------------------------
+# Lazy-fetch backfill
+#
+# Neither enrichment queue should ever just sit empty while there's still a
+# track/artist out there with no cover -- these two functions are the
+# refill callbacks (see enrichment_queue.EnrichmentQueue.set_refill_callback,
+# wired up at the bottom of this section) that each queue calls the moment
+# it runs dry.
+#
+# Two things keep this from getting stuck or stepping on client requests:
+#
+#   * Priority -- every job scheduled here uses PRIORITY_LAZY, so a real
+#     request's PRIORITY_CLIENT job (enqueue_track_enrichment /
+#     enqueue_artist_enrichment above) always cuts in front, queued before
+#     or after doesn't matter. Lazy jobs only ever spend capacity a client
+#     isn't currently asking for.
+#   * The checklist -- a track/artist that fanart.tv/Last.fm genuinely has
+#     nothing for still isn't re-tried forever: once a job actually runs,
+#     `lastfm_synced` gets set (see _fetch_and_cache_track_lastfm /
+#     enrich_artist_with_lastfm) and the SQL below excludes it from then on
+#     -- that's the permanent "confirmed, nothing there" record. For the
+#     in-between case (Last.fm/fanart.tv call itself failed or got rate
+#     limited, so `lastfm_synced` is deliberately left unset for a retry),
+#     `_lazy_*_last_attempt` below is a short in-memory cooldown so that one
+#     stuck row doesn't get re-selected on every single pass and starve
+#     everything else -- combined with the round-robin `_lazy_*_cursor`,
+#     each pass looks at a fresh slice of the table so the sweep provably
+#     works its way through every candidate rather than circling the front.
+# ---------------------------------------------------------------------------
+
+# Candidates enqueued per refill pass -- kept modest so a scan is cheap and
+# workers get back to blocking on real (possibly client) jobs quickly.
+_LAZY_FETCH_BATCH_SIZE = 25
+
+# How long a track/artist that just failed to sync sits out before it's
+# eligible to be re-selected by the sweep again.
+_LAZY_FETCH_COOLDOWN_SECONDS = 15 * 60
+
+_lazy_track_last_attempt: dict[int, float] = {}
+_lazy_artist_last_attempt: dict[int, float] = {}
+_lazy_track_cursor = 0
+_lazy_artist_cursor = 0
+
+
+async def _lazy_fetch_tracks() -> None:
+    """Refill callback for enrichment_queue.track_queue. See this section's
+    docstring above for the checklist/priority/round-robin policy."""
+    global _lazy_track_cursor
+    if not settings.lastfm_api_key:
+        return  # nothing this sweep could accomplish without a Last.fm key
+
+    now = time.monotonic()
+    query = """
+        SELECT id, title, performer, cover_id, metadata
+        FROM tracks
+        WHERE performer IS NOT NULL AND title IS NOT NULL
+          AND cover_id IS NULL
+          AND COALESCE((metadata->>'lastfm_synced')::boolean, false) = false
+          AND id > $1
+        ORDER BY id ASC
+        LIMIT $2;
+    """
+    rows = await _fetch_all(query, _lazy_track_cursor, _LAZY_FETCH_BATCH_SIZE)
+
+    wrapped = False
+    if not rows and _lazy_track_cursor != 0:
+        # Reached the end of the table with nothing left -- wrap back to the
+        # start so this is a genuine round-robin over every track, not a
+        # one-shot pass that goes idle forever once it hits the last id.
+        wrapped = True
+        _lazy_track_cursor = 0
+        rows = await _fetch_all(query, 0, _LAZY_FETCH_BATCH_SIZE)
+
+    print(f"[🔎 track lazy-fetch] scan id>{_lazy_track_cursor}{' (wrapped)' if wrapped else ''}: "
+          f"{len(rows)} candidate(s) with no cover yet")
+    if not rows:
+        return  # nothing left in the whole table that isn't already covered/synced
+
+    scheduled, skipped_cooldown, skipped_pending = 0, 0, 0
+    for row in rows:
+        track_id = row["id"]
+        _lazy_track_cursor = max(_lazy_track_cursor, track_id)
+        key = f"track:{track_id}"
+
+        last_attempt = _lazy_track_last_attempt.get(track_id)
+        if last_attempt is not None and now - last_attempt < _LAZY_FETCH_COOLDOWN_SECONDS:
+            skipped_cooldown += 1
+            continue
+        if enrichment_queue.track_queue.is_pending(key):
+            skipped_pending += 1
+            continue
+
+        _lazy_track_last_attempt[track_id] = now
+        if enrichment_queue.track_queue.enqueue(
+            key, lambda r=row: _fetch_and_cache_track_lastfm(r), priority=enrichment_queue.PRIORITY_LAZY,
+        ):
+            scheduled += 1
+
+    print(f"[🔎 track lazy-fetch] scheduled {scheduled}, skipped {skipped_cooldown} (cooldown) / "
+          f"{skipped_pending} (already pending) -- cursor now id>{_lazy_track_cursor}")
+
+
+async def _lazy_fetch_artists() -> None:
+    """Refill callback for enrichment_queue.artist_queue. See this section's
+    docstring above for the checklist/priority/round-robin policy."""
+    global _lazy_artist_cursor
+    if not settings.lastfm_api_key and not settings.fanart_api_key:
+        return  # neither service configured -- nothing this sweep could fetch
+
+    now = time.monotonic()
+    query = """
+        SELECT id, name, cover_id, description, metadata
+        FROM artists
+        WHERE name IS NOT NULL
+          AND (cover_id IS NULL OR description IS NULL)
+          AND COALESCE((metadata->>'lastfm_synced')::boolean, false) = false
+          AND id > $1
+        ORDER BY id ASC
+        LIMIT $2;
+    """
+    rows = await _fetch_all(query, _lazy_artist_cursor, _LAZY_FETCH_BATCH_SIZE)
+
+    wrapped = False
+    if not rows and _lazy_artist_cursor != 0:
+        wrapped = True
+        _lazy_artist_cursor = 0
+        rows = await _fetch_all(query, 0, _LAZY_FETCH_BATCH_SIZE)
+
+    print(f"[🔎 artist lazy-fetch] scan id>{_lazy_artist_cursor}{' (wrapped)' if wrapped else ''}: "
+          f"{len(rows)} candidate(s) -> {[r['id'] for r in rows]}")
+    if not rows:
+        return
+
+    scheduled, skipped_cooldown, skipped_pending = 0, 0, 0
+    for row in rows:
+        artist_id = row["id"]
+        _lazy_artist_cursor = max(_lazy_artist_cursor, artist_id)
+        key = f"artist:{artist_id}"
+
+        last_attempt = _lazy_artist_last_attempt.get(artist_id)
+        if last_attempt is not None and now - last_attempt < _LAZY_FETCH_COOLDOWN_SECONDS:
+            skipped_cooldown += 1
+            continue
+        if enrichment_queue.artist_queue.is_pending(key):
+            skipped_pending += 1
+            continue
+
+        _lazy_artist_last_attempt[artist_id] = now
+        if enrichment_queue.artist_queue.enqueue(
+            key, lambda aid=artist_id, r=row: enrich_artist_with_lastfm(aid, r), priority=enrichment_queue.PRIORITY_LAZY,
+        ):
+            scheduled += 1
+
+    print(f"[🔎 artist lazy-fetch] scheduled {scheduled} -> "
+          f"{[r['id'] for r in rows if _lazy_artist_last_attempt.get(r['id']) == now]}, "
+          f"skipped {skipped_cooldown} (cooldown) / {skipped_pending} (already pending) -- "
+          f"cursor now id>{_lazy_artist_cursor}")
+
+
+enrichment_queue.track_queue.set_refill_callback(_lazy_fetch_tracks)
+enrichment_queue.artist_queue.set_refill_callback(_lazy_fetch_artists)
+
+
 # ---------------------------------------------------------------------------
 # Artists
 # ---------------------------------------------------------------------------
@@ -1104,14 +1269,20 @@ async def enrich_artist_with_lastfm(artist_id: int, row: Row) -> Row:
     """
     metadata = row.get("metadata") or {}
     if row.get("description") and row.get("cover_id") and metadata.get("lastfm_synced"):
+        print(f"[🎵 artist enrichment] artist_id={artist_id} '{row.get('name')}' already fully synced, skipping")
         return row
 
     name = row.get("name")
     if not name:
+        print(f"[🎵 artist enrichment] artist_id={artist_id} has no name, can't look anything up")
         return row
+
+    print(f"[🎵 artist enrichment] artist_id={artist_id} name='{name}' "
+          f"(cover_id={row.get('cover_id')}, has_description={bool(row.get('description'))}) -- starting lookup")
 
     artist = await Artist.get_by_id(artist_id)
     if artist is None:
+        print(f"[🎵 artist enrichment] artist_id={artist_id} '{name}' -> no longer exists in DB, aborting")
         return row
 
     # Fetched regardless of whether fanart.tv finds a cover -- still needed
@@ -1131,6 +1302,11 @@ async def enrich_artist_with_lastfm(artist_id: int, row: Row) -> Row:
             )
             cover_source = "lastfm"
 
+        if image_url:
+            print(f"[🎵 artist enrichment] artist_id={artist_id} '{name}' -> cover found via {cover_source}")
+        else:
+            print(f"[🎵 artist enrichment] artist_id={artist_id} '{name}' -> no cover from fanart.tv or Last.fm")
+
         cover_id = await _link_lastfm_cover(
             row.get("cover_id"),
             image_url,
@@ -1144,6 +1320,8 @@ async def enrich_artist_with_lastfm(artist_id: int, row: Row) -> Row:
         # Last.fm itself failed -- leave lastfm_synced unset so bio/genres
         # (and, harmlessly, another fanart.tv attempt) get retried next
         # time; any cover fix already landed above regardless.
+        print(f"[🎵 artist enrichment] artist_id={artist_id} '{name}' -> Last.fm lookup failed/rate-limited, "
+              f"will retry on a future pass (not marked synced)")
         return row
 
     new_metadata = dict(metadata)
@@ -1153,6 +1331,8 @@ async def enrich_artist_with_lastfm(artist_id: int, row: Row) -> Row:
     await artist.update_parameter("metadata", new_metadata)
     row["metadata"] = new_metadata
 
+    print(f"[🎵 artist enrichment] artist_id={artist_id} '{name}' -> done, marked lastfm_synced "
+          f"(cover_id={row.get('cover_id')})")
     return row
 
 async def get_artist_tracks(artist_id: int, limit: int, offset: int) -> list[Row]:

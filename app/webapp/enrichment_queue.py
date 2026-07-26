@@ -44,13 +44,38 @@ This module owns *scheduling and dispatch* only. It doesn't know anything
 about Last.fm, tracks, or artists -- callers pass in the coroutine to run
 (a closure over repository.py's own enrichment functions) and a dedupe key
 so the same job never gets queued twice while one copy is still in flight.
+
+Priority + idle backfill ("lazy fetch"):
+
+  A real request that finds a missing cover always wants it *now* -- see
+  repository.enqueue_track_enrichment / enqueue_artist_enrichment, called
+  from routers/serializers on the request path. But there's also a large
+  backlog of tracks/artists nobody has requested yet that still have no
+  cover. Rather than leaving worker capacity idle between real requests,
+  each queue can be given a `refill` callback (see `set_refill_callback`)
+  that's invoked whenever the queue runs dry -- repository.py uses this to
+  scan the DB for not-yet-synced rows and enqueue a batch of them as
+  low-priority "lazy fetch" jobs, so the queue never just sits empty while
+  there's still something it could be fetching.
+
+  Jobs carry a `priority` (lower runs first). Client-triggered jobs use
+  PRIORITY_CLIENT; lazy-fetch backfill jobs use PRIORITY_LAZY, so a client
+  request queued behind a pile of lazy jobs still jumps to the front --
+  the lazy backfill only ever spends capacity the client side isn't using.
 """
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+import itertools
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
+
+# Lower number = runs first. Client-triggered jobs (a real request found a
+# missing cover/description) always jump ahead of the background lazy-fetch
+# sweep, which only ever fills otherwise-idle worker capacity.
+PRIORITY_CLIENT = 0
+PRIORITY_LAZY = 10
 
 # Track enrichment is a single, fast (~5 req/s) Last.fm call per job -- 2
 # workers comfortably keep up with it.
@@ -63,10 +88,14 @@ NUM_TRACK_WORKERS = 2
 NUM_ARTIST_WORKERS = 3
 
 
-@dataclass
+@dataclass(order=True)
 class _Job:
-    key: str
-    coro_factory: Callable[[], Awaitable[Any]]
+    # Comparison order (what asyncio.PriorityQueue sorts by) is driven by
+    # `sort_key` alone -- key/coro_factory are excluded via compare=False
+    # since they aren't (and don't need to be) orderable.
+    sort_key: tuple[int, int] = field(compare=True)
+    key: str = field(compare=False)
+    coro_factory: Callable[[], Awaitable[Any]] = field(compare=False)
 
 
 class EnrichmentQueue:
@@ -78,25 +107,54 @@ class EnrichmentQueue:
     def __init__(self, name: str, num_workers: int):
         self.name = name
         self.num_workers = num_workers
-        self._queue: "asyncio.Queue[_Job] | None" = None
+        self._queue: "asyncio.PriorityQueue[_Job] | None" = None
         self._workers: list[asyncio.Task] = []
         self._pending: set[str] = set()  # dedupe key -> queued or currently being processed
+        self._seq = itertools.count()  # tie-breaker so equal-priority jobs stay FIFO
+        self._refill: Callable[[], Awaitable[None]] | None = None
+        self._refill_lock = asyncio.Lock()
 
-    def _get_queue(self) -> asyncio.Queue:
+    def _get_queue(self) -> asyncio.PriorityQueue:
         if self._queue is None:
-            self._queue = asyncio.Queue()
+            self._queue = asyncio.PriorityQueue()
         return self._queue
 
     def is_pending(self, key: str) -> bool:
         """True if a job with this dedupe key is queued or currently running."""
         return key in self._pending
 
-    def enqueue(self, key: str, coro_factory: Callable[[], Awaitable[Any]]) -> bool:
+    def set_refill_callback(self, coro_fn: Callable[[], Awaitable[None]]) -> None:
+        """Registers the coroutine function to call whenever this queue runs
+        dry (see `_maybe_refill`). repository.py wires this up at import time
+        to its lazy-fetch DB scan for tracks/artists still missing a cover
+        (see repository._lazy_fetch_tracks / _lazy_fetch_artists) -- this
+        module stays agnostic to what "refill" actually means."""
+        self._refill = coro_fn
+
+    async def _maybe_refill(self) -> None:
+        if self._refill is None:
+            return
+        if self._refill_lock.locked():
+            # A refill scan is already in flight (kicked off by another
+            # worker that also just found the queue empty) -- don't pile on
+            # duplicate DB scans, that scan will re-check emptiness itself.
+            return
+        async with self._refill_lock:
+            try:
+                await self._refill()
+            except Exception as e:  # best-effort -- never crash a worker over this
+                print(f"[⚠️ {self.name} lazy-fetch refill] failed: {e}")
+
+    def enqueue(self, key: str, coro_factory: Callable[[], Awaitable[Any]], *, priority: int = PRIORITY_CLIENT) -> bool:
         """Schedules background work for `key` unless a job with the same key
         is already queued/running. `coro_factory` is called (to produce the
         actual coroutine) only if the job is accepted, so callers can pass a
         plain lambda without worrying about "coroutine was never awaited"
         warnings on the skipped/deduped path.
+
+        `priority` defaults to PRIORITY_CLIENT (a real request wants this
+        now); pass PRIORITY_LAZY for background backfill jobs so they always
+        yield to anything client-triggered already queued or queued later.
 
         Returns True if a new job was scheduled, False if it was deduped or
         if there's no running event loop to schedule onto (e.g. called from
@@ -108,12 +166,20 @@ class EnrichmentQueue:
         except RuntimeError:
             return False
         self._pending.add(key)
-        self._get_queue().put_nowait(_Job(key, coro_factory))
+        sort_key = (priority, next(self._seq))
+        self._get_queue().put_nowait(_Job(sort_key, key, coro_factory))
         return True
 
     async def _worker(self, worker_id: int) -> None:
         queue = self._get_queue()
         while True:
+            if queue.empty():
+                # Nothing queued right now -- top up from the lazy-fetch
+                # backlog, if one's registered, before blocking on get().
+                # Checked here (rather than only after finishing a job) so
+                # this also fires at startup, when the queue is empty from
+                # the very first loop iteration and no job has ever run yet.
+                await self._maybe_refill()
             job = await queue.get()
             try:
                 await job.coro_factory()

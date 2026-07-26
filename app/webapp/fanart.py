@@ -107,8 +107,10 @@ async def _get_musicbrainz_mbid(artist_name: str) -> Optional[str]:
     cache_key = ("mbid", artist_name.strip().lower())
     cached = await mbid_cache.get(cache_key)
     if cached is not None:
+        print(f"[🎨 musicbrainz] '{artist_name}' -> mbid={cached} (cache hit)")
         return cached
 
+    print(f"[🎨 musicbrainz] requesting mbid for artist='{artist_name}'")
     await _mb_limiter.wait()
     try:
         response = await _get_client().get(
@@ -116,15 +118,25 @@ async def _get_musicbrainz_mbid(artist_name: str) -> Optional[str]:
             params={"query": f"artist:{artist_name}", "fmt": "json", "limit": 1},
             headers={"User-Agent": MUSICBRAINZ_USER_AGENT},
         )
+        if response.status_code == 503:
+            print(f"[🎨 musicbrainz] '{artist_name}' -> 503 rate limited")
+            return None
         response.raise_for_status()
         data = response.json()
-    except (httpx.HTTPError, ValueError):
+    except httpx.HTTPStatusError as e:
+        print(f"[🎨 musicbrainz] '{artist_name}' -> HTTP {e.response.status_code}")
+        return None
+    except (httpx.HTTPError, ValueError) as e:
+        print(f"[🎨 musicbrainz] '{artist_name}' -> request failed: {e!r}")
         return None
 
     artists = data.get("artists", [])
     mbid = artists[0].get("id") if artists else None
     if mbid:
+        print(f"[🎨 musicbrainz] '{artist_name}' -> mbid={mbid} (fetched)")
         await mbid_cache.set(cache_key, mbid)
+    else:
+        print(f"[🎨 musicbrainz] '{artist_name}' -> no matching artist found")
     return mbid
 
 
@@ -138,10 +150,12 @@ async def _fetch_fanart(mbid: str) -> Optional[dict]:
     params = {"api_key": settings.fanart_api_key}
     client = _get_client()
 
-    for _ in range(FANART_MAX_RETRIES):
+    print(f"[🖼️ fanart.tv] requesting mbid={mbid}")
+    for attempt in range(1, FANART_MAX_RETRIES + 1):
         try:
             response = await client.get(url, params=params)
-        except httpx.HTTPError:
+        except httpx.HTTPError as e:
+            print(f"[🖼️ fanart.tv] mbid={mbid} -> request failed: {e!r}")
             return None
 
         if response.status_code == 429:
@@ -150,17 +164,29 @@ async def _fetch_fanart(mbid: str) -> Optional[dict]:
                 delay = float(retry_after_header) if retry_after_header else FANART_DEFAULT_RETRY_AFTER_SECONDS
             except ValueError:
                 delay = FANART_DEFAULT_RETRY_AFTER_SECONDS
+            print(f"[🖼️ fanart.tv] mbid={mbid} -> 429 rate limited (attempt {attempt}/{FANART_MAX_RETRIES}), "
+                  f"retrying in {delay:.1f}s")
             await asyncio.sleep(delay)
             continue
 
+        if response.status_code == 404:
+            print(f"[🖼️ fanart.tv] mbid={mbid} -> 404 no art on file")
+            return None
+
         if response.status_code != 200:
+            print(f"[🖼️ fanart.tv] mbid={mbid} -> HTTP {response.status_code}")
             return None
 
         try:
-            return response.json()
+            data = response.json()
         except ValueError:
+            print(f"[🖼️ fanart.tv] mbid={mbid} -> 200 but invalid JSON body")
             return None
+        print(f"[🖼️ fanart.tv] mbid={mbid} -> fetched "
+              f"({len(data.get('artistthumb') or [])} thumb(s), {len(data.get('artistbackground') or [])} background(s))")
+        return data
 
+    print(f"[🖼️ fanart.tv] mbid={mbid} -> gave up after {FANART_MAX_RETRIES} rate-limited attempts")
     return None  # gave up after repeated 429s -- try again next enrichment pass
 
 
@@ -173,20 +199,27 @@ async def get_artist_cover_url(artist_name: str) -> Optional[str]:
     `artistbackground` (a wide banner), matching the sample script this was
     built from.
     """
-    if not artist_name or not settings.fanart_api_key:
+    if not artist_name:
+        return None
+    if not settings.fanart_api_key:
+        print(f"[🖼️ fanart.tv] '{artist_name}' -> skipped, no FANART_API_KEY configured")
         return None
 
     cache_key = ("fanart_cover", artist_name.strip().lower())
     cached = await fanart_cache.get(cache_key)
     if cached is not None:
+        print(f"[🖼️ fanart.tv] '{artist_name}' -> cover url (cache hit)")
         return cached
 
+    print(f"[🖼️ fanart.tv] --- artist cover lookup starting for '{artist_name}' ---")
     mbid = await _get_musicbrainz_mbid(artist_name)
     if not mbid:
+        print(f"[🖼️ fanart.tv] '{artist_name}' -> no mbid, can't query fanart.tv")
         return None
 
     data = await _fetch_fanart(mbid)
     if not data:
+        print(f"[🖼️ fanart.tv] '{artist_name}' (mbid={mbid}) -> no usable data from fanart.tv")
         return None
 
     thumbs = data.get("artistthumb") or []
@@ -198,5 +231,8 @@ async def get_artist_cover_url(artist_name: str) -> Optional[str]:
         url = backgrounds[0].get("url")
 
     if url:
+        print(f"[🖼️ fanart.tv] '{artist_name}' -> cover url found ({'thumb' if thumbs else 'background'})")
         await fanart_cache.set(cache_key, url)
+    else:
+        print(f"[🖼️ fanart.tv] '{artist_name}' (mbid={mbid}) -> data returned but no thumb/background image")
     return url
