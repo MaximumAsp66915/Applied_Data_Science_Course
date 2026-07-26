@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronDown, SkipBack, SkipForward, Play, Pause, ThumbsUp, ThumbsDown, User } from "lucide-react";
+import { ChevronDown, Download, SkipBack, SkipForward, Play, Pause, ThumbsUp, ThumbsDown, User } from "lucide-react";
 import { api } from "../lib/api";
 import { pollPending } from "../lib/pollPending";
 import { usePlayer } from "../context/PlayerContext";
@@ -9,7 +9,7 @@ import { Cover } from "../components/TrackCard";
 import ReactionWaveform from "../components/ReactionWaveform";
 import TrackDetailsSheet from "../components/TrackDetailsSheet";
 import useSwipeUp from "../lib/useSwipeUp";
-import { hapticImpact } from "../lib/telegram";
+import { hapticImpact, showAlert } from "../lib/telegram";
 
 // "Shared by" can list an arbitrary number of uploaders -- past this many
 // names we collapse the rest into "+N more" instead of letting the line
@@ -39,7 +39,28 @@ export default function SongPage() {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [details, setDetails] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const swipe = useSwipeUp(detailsOpen, setDetailsOpen);
+
+  const handleDownload = async () => {
+    if (downloading || !track?.id) return;
+    hapticImpact("light");
+    setDownloading(true);
+    try {
+      const { data } = await api.downloadTrack(track.id);
+      if (data?.sent) {
+        showAlert("Sent! Check your chat with the bot.");
+      } else if (data?.reason === "not_started") {
+        showAlert("Please exit the mini app, press Start in your chat with the bot, then try again.");
+      } else {
+        showAlert("Couldn't send the track. Please try again.");
+      }
+    } catch {
+      showAlert("Couldn't send the track. Please try again.");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   // If the page is opened directly (deep link / refresh) rather than via a
   // card tap, fetch the track and start it.
@@ -139,7 +160,18 @@ export default function SongPage() {
           <ChevronDown size={18} className="text-muted" />
         </button>
         <p className="eyebrow">Now playing</p>
-        <div className="w-9" />
+        <button
+          onClick={handleDownload}
+          disabled={downloading}
+          className="w-9 h-9 rounded-full bg-surface flex items-center justify-center tap disabled:opacity-40"
+          aria-label="Download"
+        >
+          {downloading ? (
+            <span className="block w-[15px] h-[15px] rounded-full border-2 border-muted/40 border-t-paper animate-spin" />
+          ) : (
+            <Download size={15} className="text-muted" />
+          )}
+        </button>
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center px-6 mt-2" {...swipe.bind}>

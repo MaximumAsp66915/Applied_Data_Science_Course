@@ -1,7 +1,10 @@
+import html
+
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from fastapi.responses import StreamingResponse
 
+from ..config import settings, get_public_domain
 from ..telegram_auth import require_telegram_user, optional_telegram_user, TelegramUser
 from .. import repository as repo
 from ..serializers import (
@@ -10,7 +13,13 @@ from ..serializers import (
     serialize_artist_brief,
     serialize_user_brief,
 )
-from ..media import open_telegram_stream, resolve_telegram_file_url, resolve_message_file_id
+from ..media import (
+    open_telegram_stream,
+    resolve_telegram_file_url,
+    resolve_message_file_id,
+    copy_track_to_user,
+    TelegramSendError,
+)
 
 router = APIRouter(prefix="/api/tracks", tags=["tracks"])
 
@@ -20,6 +29,61 @@ async def _viewer_id(tg_user: TelegramUser | None) -> int | None:
         return None
     viewer = await repo.get_user_by_chat_id(tg_user["id"])
     return viewer["user_id"] if viewer else None
+
+
+def _build_share_caption(track_id: int, row: dict) -> str:
+    """Caption attached to a track sent through the download button: a
+    direct link to this track's song page (works in any browser, no
+    Telegram required) plus a "via ..." deep link that reopens the Mini
+    App straight onto this same track (https://t.me/{bot}?startapp=track_{id}
+    -- start_param becomes "track_{id}" on the other end). Either link is
+    simply omitted if its underlying setting isn't configured yet."""
+    title = row.get("title") or "Untitled track"
+    performer = row.get("performer") or "Unknown artist"
+    label = html.escape(f"{title} — {performer}")
+
+    lines = []
+    domain = get_public_domain()
+    if domain:
+        lines.append(f'<a href="{domain}/song/{track_id}">{label}</a>')
+    else:
+        lines.append(label)
+
+    if settings.bot_username:
+        lines.append(f'via <a href="https://t.me/{settings.bot_username}?startapp=track_{track_id}">SUT Music</a>')
+
+    return "\n".join(lines)
+
+
+@router.post("/{track_id}/download")
+async def download_track(track_id: int, tg_user: TelegramUser = Depends(require_telegram_user)):
+    """Sends this track to whoever pressed the download button, as a copy
+    (see media.copy_track_to_user's docstring for why copy vs forward) with
+    a caption linking back to the song page. Telegram private chat ids are
+    just the user's own id, so `tg_user["id"]` (verified server-side from
+    the Mini App's signed init data) IS the destination chat -- no lookup
+    needed.
+
+    Returns `{"sent": true}` on success, or `{"sent": false, "reason":
+    "not_started"}` if the target has never opened a chat with the bot (or
+    has blocked it) -- the frontend uses that specific reason to show a
+    "start the bot first" warning instead of a generic failure message.
+    Any other Telegram-side failure raises a 502."""
+    row = await repo.get_track(track_id)
+    if not row:
+        raise HTTPException(404, "Track not found")
+    if not row.get("chat_id") or not row.get("message_id"):
+        raise HTTPException(404, "Track file unavailable")
+
+    caption = _build_share_caption(track_id, row)
+    try:
+        await copy_track_to_user(tg_user["id"], row["chat_id"], row["message_id"], caption)
+    except TelegramSendError as exc:
+        if exc.not_started:
+            return {"sent": False, "reason": "not_started"}
+        raise HTTPException(502, f"Failed to send track: {exc.description}")
+
+    return {"sent": True}
 
 
 @router.get("/{track_id}")

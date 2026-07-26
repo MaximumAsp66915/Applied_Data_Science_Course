@@ -37,6 +37,8 @@ export const api = {
   streamUrl: (trackId) => `${BASE_URL}/tracks/${trackId}/stream`,
   reactToTrack: (trackId, reaction) =>
     client.post(`/tracks/${trackId}/reactions`, { reaction }), // reaction: "like" | "dislike" | null
+  downloadTrack: (trackId) =>
+    client.post(`/tracks/${trackId}/download`), // -> { sent: true } | { sent: false, reason: "not_started" }
 
   // Artists
   getArtist: (artistId) => client.get(`/artists/${artistId}`),

@@ -33,6 +33,18 @@ export function getInitData() {
   return tg?.initData ?? "";
 }
 
+// Native Telegram popup -- used for one-off confirmations/warnings (e.g.
+// the download button's "sent!" / "start the bot first" messages) so we
+// don't need to build/maintain our own toast component for this. Falls back
+// to a plain browser alert outside Telegram (local dev in a normal tab).
+export function showAlert(message) {
+  if (tg?.showAlert) {
+    tg.showAlert(message);
+  } else if (typeof window !== "undefined") {
+    window.alert(message);
+  }
+}
+
 export function hapticImpact(style = "light") {
   tg?.HapticFeedback?.impactOccurred(style);
 }

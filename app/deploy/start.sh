@@ -77,12 +77,16 @@ PIDS+=("$!")
 nohup cloudflared tunnel --protocol quic --url http://localhost:4173 >> "$CLOUDFLARE_LOG" 2>&1 &
 PIDS+=("$!")
 
-# --- Wait for cloudflared to print the public URL, then record it ---
+# --- Wait for cloudflared to print the public URL, then record it (both
+#     url.txt, for humans/CI, and .env's PUBLIC_DOMAIN, for the webapp --
+#     see deploy/update_domain.sh; webapp/config.py's get_public_domain()
+#     re-reads .env on every call so this lands without a webapp restart) ---
 (
     for _ in $(seq 1 60); do
         url=$(grep -Eo 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' "$CLOUDFLARE_LOG" | head -n1 || true)
         if [ -n "$url" ]; then
             echo "$url" > "$URL_FILE"
+            "$APP_DIR/deploy/update_domain.sh" >> "$APP_LOG" 2>&1
             break
         fi
         sleep 2

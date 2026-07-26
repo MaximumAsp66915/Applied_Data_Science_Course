@@ -1144,6 +1144,7 @@ async def _lazy_fetch_tracks() -> None:
         FROM tracks
         WHERE performer IS NOT NULL AND title IS NOT NULL
           AND cover_id IS NULL
+          AND COALESCE((metadata->>'lastfm_synced')::boolean, false) = false
           AND id > $1
         ORDER BY id ASC
         LIMIT $2;
@@ -1201,6 +1202,7 @@ async def _lazy_fetch_artists() -> None:
         FROM artists
         WHERE name IS NOT NULL
           AND (cover_id IS NULL OR description IS NULL)
+          AND COALESCE((metadata->>'lastfm_synced')::boolean, false) = false
           AND id > $1
         ORDER BY id ASC
         LIMIT $2;

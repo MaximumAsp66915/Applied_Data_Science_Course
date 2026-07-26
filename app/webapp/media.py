@@ -66,6 +66,67 @@ async def resolve_telegram_file_url(file_id: str) -> str:
         return f"{TELEGRAM_API}/file/bot{settings.bot_token}/{file_path}"
 
 
+class TelegramSendError(Exception):
+    """Raised by copy_track_to_user() when Telegram refuses the send.
+
+    `not_started` is True specifically when Telegram's error indicates the
+    target user has never opened a chat with this bot (or has blocked it) --
+    the one case the caller needs to distinguish from a generic failure, so
+    it can tell the user to go start the bot first instead of just "download
+    failed"."""
+
+    def __init__(self, description: str, *, not_started: bool = False):
+        super().__init__(description)
+        self.description = description
+        self.not_started = not_started
+
+
+# Substrings Telegram's Bot API is known to put in `description` when a send
+# fails specifically because the target has no open chat with the bot yet
+# (never pressed Start), has blocked it, or the account is gone -- as
+# opposed to some other, retry-worthy failure (network hiccup, bad
+# chat/message id, rate limiting, etc).
+_NOT_STARTED_MARKERS = (
+    "bot can't initiate conversation",
+    "bot was blocked by the user",
+    "user is deactivated",
+    "chat not found",
+)
+
+
+async def copy_track_to_user(user_chat_id: int, from_chat_id: int, message_id: int, caption: str) -> dict:
+    """Delivers a track to `user_chat_id` (a private chat -- Telegram user
+    ids double as their private chat id) via Bot API `copyMessage`, sourcing
+    the audio from `from_chat_id`/`message_id` (tracks.chat_id/message_id).
+
+    Deliberately copyMessage, not forwardMessage: a forward carries a
+    "Forwarded from <channel>" header the user didn't ask to see, and
+    forwardMessage can't touch the caption at all. copyMessage sends an
+    independent copy of the same media with no such header, and lets us
+    replace the caption outright -- exactly what the download button needs
+    (see routers/tracks.py's build_share_caption()).
+
+    Raises TelegramSendError (see above) if Telegram rejects the send."""
+    async with httpx.AsyncClient(timeout=_API_TIMEOUT) as client:
+        resp = await client.post(
+            f"{TELEGRAM_API}/bot{settings.bot_token}/copyMessage",
+            json={
+                "chat_id": user_chat_id,
+                "from_chat_id": from_chat_id,
+                "message_id": message_id,
+                "caption": caption,
+                "parse_mode": "HTML",
+            },
+            timeout=_API_TIMEOUT,
+        )
+    data = resp.json()
+    if resp.status_code >= 400 or not data.get("ok"):
+        description = data.get("description") or f"HTTP {resp.status_code}"
+        not_started = any(marker in description.lower() for marker in _NOT_STARTED_MARKERS)
+        raise TelegramSendError(description, not_started=not_started)
+    return data["result"]
+
+
 async def resolve_message_file_id(chat_id: int, message_id: int) -> str | None:
     """Recovers a Bot-API-valid file_id for a message the bot never received
     live, by forwarding it (via the Bot API, back into the same chat) and
