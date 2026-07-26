@@ -4,7 +4,6 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from fastapi.responses import StreamingResponse
 
-from ..config import settings
 from ..telegram_auth import require_telegram_user, optional_telegram_user, TelegramUser
 from .. import repository as repo
 from ..serializers import (
@@ -17,6 +16,7 @@ from ..media import (
     open_telegram_stream,
     resolve_telegram_file_url,
     resolve_message_file_id,
+    resolve_bot_username,
     copy_track_to_user,
     TelegramSendError,
 )
@@ -31,7 +31,7 @@ async def _viewer_id(tg_user: TelegramUser | None) -> int | None:
     return viewer["user_id"] if viewer else None
 
 
-def _build_share_caption(track_id: int, row: dict) -> str:
+async def _build_share_caption(track_id: int, row: dict) -> str:
     """Caption attached to a track sent through the download button.
 
     Deliberately does NOT use `get_public_domain()` here: that URL is a
@@ -48,18 +48,26 @@ def _build_share_caption(track_id: int, row: dict) -> str:
       - a second "via ..." line links to the bot itself, for anyone who
         just wants to open the app rather than jump to this one track.
 
-    Both lines are simply omitted if `bot_username` isn't configured yet.
+    Uses resolve_bot_username() rather than reading settings.bot_username
+    directly: pydantic-settings reads .env once at process start, so if
+    BOT_USERNAME was added/edited without a restart, settings.bot_username
+    would still read as empty here. resolve_bot_username() covers that --
+    it falls back to a live Bot API getMe() call (cached after) whenever
+    the settings value is blank -- so this self-heals without needing a
+    restart. Both link lines are simply omitted if the username still
+    can't be resolved either way (e.g. BOT_TOKEN itself is missing).
     """
     title = row.get("title") or "Untitled track"
     performer = row.get("performer") or "Unknown artist"
-    label = html.escape(f"{title} — {performer}")
+    label = html.escape(f"{title} - {performer}")
 
-    if not settings.bot_username:
+    bot_username = await resolve_bot_username()
+    if not bot_username:
         return label
 
-    deep_link = f"https://t.me/{settings.bot_username}?startapp=track_{track_id}"
-    bot_link = f"https://t.me/{settings.bot_username}"
-    return f'<a href="{deep_link}">{label}</a>\nvia <a href="{bot_link}">SUT Music</a>'
+    deep_link = f"https://t.me/{bot_username}?startapp=track_{track_id}"
+    bot_link = f"https://t.me/{bot_username}?startapp"
+    return f'<a href="{deep_link}">{label}</a>/via <a href="{bot_link}">SUT Music</a>'
 
 
 @router.post("/{track_id}/download")
@@ -82,7 +90,7 @@ async def download_track(track_id: int, tg_user: TelegramUser = Depends(require_
     if not row.get("chat_id") or not row.get("message_id"):
         raise HTTPException(404, "Track file unavailable")
 
-    caption = _build_share_caption(track_id, row)
+    caption = await _build_share_caption(track_id, row)
     try:
         await copy_track_to_user(tg_user["id"], row["chat_id"], row["message_id"], caption)
     except TelegramSendError as exc:

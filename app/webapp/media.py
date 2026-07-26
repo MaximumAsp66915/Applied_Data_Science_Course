@@ -66,6 +66,39 @@ async def resolve_telegram_file_url(file_id: str) -> str:
         return f"{TELEGRAM_API}/file/bot{settings.bot_token}/{file_path}"
 
 
+# In-memory cache for resolve_bot_username() below -- a bot's @username
+# can't change without a restart happening anyway, so one getMe call per
+# process lifetime is enough. None until the first successful resolve.
+_bot_username_cache: str | None = None
+
+
+async def resolve_bot_username() -> str | None:
+    """The bot's own @username, used to build the Mini App deep links in
+    download captions (routers/tracks.py's _build_share_caption). Prefers
+    BOT_USERNAME from .env if it's been set by hand; otherwise resolves it
+    once via Bot API `getMe` and caches it for the rest of the process, so
+    captions still get real links even if that .env var is left blank.
+    Returns None (caller falls back to a plain, link-less caption) if
+    BOT_TOKEN is missing/invalid or the call fails."""
+    global _bot_username_cache
+    if settings.bot_username:
+        return settings.bot_username
+    if _bot_username_cache:
+        return _bot_username_cache
+    if not settings.bot_token:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=_API_TIMEOUT) as client:
+            resp = await client.get(f"{TELEGRAM_API}/bot{settings.bot_token}/getMe")
+            resp.raise_for_status()
+            username = resp.json().get("result", {}).get("username")
+    except (httpx.HTTPStatusError, httpx.TransportError):
+        return None
+    if username:
+        _bot_username_cache = username
+    return username
+
+
 class TelegramSendError(Exception):
     """Raised by copy_track_to_user() when Telegram refuses the send.
 
