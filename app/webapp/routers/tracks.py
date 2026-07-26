@@ -93,8 +93,8 @@ async def get_track_queue(
     else:
         data = await repo.get_global_track_queue(track_id)
     return {
-        "prev": await serialize_track(data["prev"]) if data.get("prev") else None,
-        "next": await serialize_track(data["next"]) if data.get("next") else None,
+        "prev": await serialize_track(data["prev"], viewer_id=viewer_id) if data.get("prev") else None,
+        "next": await serialize_track(data["next"], viewer_id=viewer_id) if data.get("next") else None,
         "next_is_suggestion": bool(data.get("next_is_suggestion")),
     }
 
@@ -175,6 +175,7 @@ async def react_to_track(
     user_id = viewer["user_id"]
 
     await repo.set_reaction(track_id, user_id, reaction)
+
     row = await repo.get_track(track_id)
     if not row:
         raise HTTPException(404, "Track not found")

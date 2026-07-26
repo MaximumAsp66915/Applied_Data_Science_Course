@@ -149,10 +149,9 @@ export function PlayerProvider({ children }) {
       });
       try {
         await api.reactToTrack(track.id, next);
-      } catch (err) {
+      } catch {
         // The save actually failed -- put the UI back the way it was
         // rather than showing a reaction that was never persisted.
-        console.error("Failed to save reaction", err);
         setMyReaction(prevReaction);
         setTrack((t) => {
           if (!t) return t;

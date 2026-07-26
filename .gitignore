@@ -10,5 +10,16 @@
 /app/db/internal_db/internal_db_key.key
 /.idea/
 /app/collect_data.session
-/app/.venv
-/app/frontend/node_modules/
+*.pyc
+
+# Ignore Python cache & virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+app/.venv/
+
+# Ignore Node dependencies & build artifacts
+node_modules/
+app/frontend/node_modules/
+dist/
+app/frontend/dist/

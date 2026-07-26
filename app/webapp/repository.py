@@ -377,11 +377,61 @@ async def get_user_reaction(track_id: int, user_id: int) -> Optional[str]:
     return rows[0]["sentiment"] if rows else None
 
 
+async def _apply_received_reaction_change(obj, previous: Optional[str], new: Optional[str]) -> None:
+    """Shared 'someone reacted to me' bookkeeping for Track and Artist --
+    both expose received_like()/received_dislike()/received_reaction(),
+    the same methods the Telegram bot's reaction collector calls on
+    track_obj/artist objects (see _collect_reactions). That method is only
+    ever additive there, since it's importing each reaction exactly once
+    from Telegram's history. Here a user can switch or clear a reaction, so
+    the previous sentiment's counts are removed first, then the new one is
+    added -- e.g. like -> dislike removes the like credit before adding the
+    dislike credit, rather than just adding on top of the old count."""
+    if previous == "like":
+        await obj.update_count_by(param="likes_count", value=-1)
+    elif previous == "dislike":
+        await obj.update_count_by(param="dislikes_count", value=-1)
+    if previous:
+        await obj.update_count_by(param="reactions_count", value=-1)
+
+    if new == "like":
+        await obj.received_like()
+    elif new == "dislike":
+        await obj.received_dislike()
+    if new:
+        await obj.received_reaction()
+
+
+async def _apply_user_state_reaction_change(
+    state, previous: Optional[str], new: Optional[str], likes_key: str, dislikes_key: str, reactions_key: str
+) -> None:
+    """Same remove-old-then-add-new pattern as _apply_received_reaction_change,
+    for UserMusicBotState -- covers both the reactor's own sent_* totals and
+    the uploader's received_* totals (see the two call sites below), mirroring
+    the bot's user_state.sent_like()/received_like() etc. calls."""
+    if previous == "like":
+        await state.update_count_by(likes_key, -1)
+    elif previous == "dislike":
+        await state.update_count_by(dislikes_key, -1)
+    if previous:
+        await state.update_count_by(reactions_key, -1)
+
+    if new == "like":
+        await state.update_count_by(likes_key, 1)
+    elif new == "dislike":
+        await state.update_count_by(dislikes_key, 1)
+    if new:
+        await state.update_count_by(reactions_key, 1)
+
+
 async def set_reaction(track_id: int, user_id: int, reaction: Optional[str]) -> None:
     """reaction is 'like' | 'dislike' | None (None clears it). Keeps
-    tracks.likes_count/dislikes_count/reactions_count and both the reactor's
-    and the uploader's user_musicbot_state totals in sync -- same bookkeeping
-    the Telegram bot itself performs on a group reaction.
+    tracks/artists likes_count/dislikes_count/reactions_count and both the
+    reactor's and the uploader's user_musicbot_state totals in sync -- same
+    bookkeeping the Telegram bot itself performs on a group reaction (see
+    SUT_Music_bot._collect_reactions), extended to handle a user changing
+    their mind: switching like<->dislike removes the old credit before
+    adding the new one, and clearing a reaction just removes it.
 
     Credit for a like/dislike goes to EVERY user in tracks.uploaded_by, since
     that's exactly the set of people the frontend displays under "Shared by"
@@ -424,53 +474,47 @@ async def set_reaction(track_id: int, user_id: int, reaction: Optional[str]) -> 
             if not result.success:
                 raise RuntimeError(f"Failed to save track reaction: {result.error_message}")
 
-    like_delta = (1 if reaction == "like" else 0) - (1 if previous == "like" else 0)
-    dislike_delta = (1 if reaction == "dislike" else 0) - (1 if previous == "dislike" else 0)
-    reaction_delta = (1 if reaction else 0) - (1 if previous else 0)
-
-    if like_delta:
-        await track.update_count_by("likes_count", like_delta)
-    if dislike_delta:
-        await track.update_count_by("dislikes_count", dislike_delta)
-    if reaction_delta:
-        await track.update_count_by("reactions_count", reaction_delta)
+    await _apply_received_reaction_change(track, previous, reaction)
 
     artist_ids = [int(aid) for aid in (await track.get_parameter("artists_id") or [])]
-    existing_artist_reactions: dict[int, Any] = {}
-    if artist_ids:
-        for artist_id in artist_ids:
-            found = await ArtistReaction.search_reactions(
-                conditions={"artist_id": ("=", artist_id), "user_id": ("=", user_id)}, limit=1
-            )
-            if found:
-                existing_artist_reactions[artist_id] = found[0]
-
-    if reaction is None:
-        for artist_reaction in existing_artist_reactions.values():
-            await artist_reaction.delete()
-    else:
-        for artist_id in artist_ids:
-            existing_ar = existing_artist_reactions.get(artist_id)
-            if existing_ar:
-                await existing_ar.update_parameter("sentiment", reaction)
-                await existing_ar.update_parameter("reaction_id", reaction_id)
-            else:
-                result = await ArtistReaction.create(
-                    artist_id=artist_id, user_id=user_id, reaction_id=reaction_id,
-                    sentiment=reaction, on_user_id=owner_ids[0] if owner_ids else None,
+    try:
+        existing_artist_reactions: dict[int, Any] = {}
+        if artist_ids:
+            for artist_id in artist_ids:
+                found = await ArtistReaction.search_reactions(
+                    conditions={"artist_id": ("=", artist_id), "user_id": ("=", user_id)}, limit=1
                 )
-                if not result.success:
-                    raise RuntimeError(f"Failed to save artist reaction: {result.error_message}")
+                if found:
+                    existing_artist_reactions[artist_id] = found[0]
 
-    if like_delta or dislike_delta or reaction_delta:
+        if reaction is None:
+            for artist_reaction in existing_artist_reactions.values():
+                await artist_reaction.delete()
+        else:
+            for artist_id in artist_ids:
+                existing_ar = existing_artist_reactions.get(artist_id)
+                if existing_ar:
+                    await existing_ar.update_parameter("sentiment", reaction)
+                    await existing_ar.update_parameter("reaction_id", reaction_id)
+                else:
+                    result = await ArtistReaction.create(
+                        artist_id=artist_id, user_id=user_id, reaction_id=reaction_id,
+                        sentiment=reaction, on_user_id=owner_ids[0] if owner_ids else None,
+                    )
+                    if not result.success:
+                        raise RuntimeError(f"Failed to save artist reaction: {result.error_message}")
+
         for artist_id in artist_ids:
-            artist = Artist(artist_id)
-            if like_delta:
-                await artist.update_count_by(param="likes_count", value=like_delta)
-            if dislike_delta:
-                await artist.update_count_by(param="dislikes_count", value=dislike_delta)
-            if reaction_delta:
-                await artist.update_count_by(param="reactions_count", value=reaction_delta)
+            await _apply_received_reaction_change(Artist(artist_id), previous, reaction)
+    except Exception:
+        # Artist-side bookkeeping is secondary to the track reaction itself
+        # (already saved above). A problem here -- e.g. a bad DB trigger on
+        # artist_reactions -- shouldn't take down the user's like/dislike or
+        # the user/uploader count updates below. Still logged loudly so it
+        # doesn't go unnoticed.
+        import traceback
+        print(f"[set_reaction] artist-side bookkeeping FAILED for track_id={track_id} artist_ids={artist_ids} (track reaction itself was NOT affected):")
+        traceback.print_exc()
 
     async def _adjust_state(uid: int, likes_key: str, dislikes_key: str, reactions_key: str):
         state = await UserMusicBotState.get_by_user_id(uid)
@@ -479,12 +523,7 @@ async def set_reaction(track_id: int, user_id: int, reaction: Optional[str]) -> 
             state = result.data if result.success else None
         if state is None:
             return
-        if like_delta:
-            await state.update_count_by(likes_key, like_delta)
-        if dislike_delta:
-            await state.update_count_by(dislikes_key, dislike_delta)
-        if reaction_delta:
-            await state.update_count_by(reactions_key, reaction_delta)
+        await _apply_user_state_reaction_change(state, previous, reaction, likes_key, dislikes_key, reactions_key)
 
     await _adjust_state(user_id, "total_likes", "total_dislikes", "total_reactions")
     for owner_id in owner_ids:
