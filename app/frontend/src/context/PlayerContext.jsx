@@ -10,8 +10,27 @@ const PlayerContext = createContext(null);
 // might never get played, so this stays small on purpose.
 const PREFETCH_AUDIO_POOL_SIZE = 2;
 
+function createAudioFor(trackData) {
+  const el = new Audio();
+  el.preload = "auto";
+  el.src = api.streamUrl(trackData.id);
+  // Tags the element with the track it belongs to so playTrack can tell
+  // "is this already the track I want" apart from "this is some other
+  // leftover element" without a second lookup structure.
+  el.dataset.trackId = String(trackData.id);
+  return el;
+}
+
 export function PlayerProvider({ children }) {
-  const audioRef = useRef(new Audio());
+  // The <audio> element actually wired up to play/pause/seek right now.
+  // Kept as both a ref (for synchronous reads inside callbacks that might
+  // fire back-to-back before React re-renders, e.g. a fast double-tap on
+  // "next") and state (so the listener-attaching effect below re-runs
+  // whenever we swap to a different element).
+  const audioElRef = useRef(null);
+  if (!audioElRef.current) audioElRef.current = new Audio();
+  const [audioEl, setAudioEl] = useState(() => audioElRef.current);
+
   const [track, setTrack] = useState(null); // current track object
   const [queue, setQueue] = useState({ prev: null, next: null, next_is_suggestion: false });
   const [isPlaying, setIsPlaying] = useState(false);
@@ -36,11 +55,14 @@ export function PlayerProvider({ children }) {
     if (!trackData?.id) return;
     const pool = prefetchPoolRef.current;
     if (pool.has(trackData.id)) return;
+    if (audioElRef.current?.dataset.trackId === String(trackData.id)) return; // already playing
 
     whenIdle(() => {
-      const el = new Audio();
-      el.preload = "auto";
-      el.src = api.streamUrl(trackData.id);
+      // Could've already become the active track (or gotten prefetched by
+      // an overlapping call) while this was waiting for an idle slot.
+      if (pool.has(trackData.id)) return;
+      if (audioElRef.current?.dataset.trackId === String(trackData.id)) return;
+      const el = createAudioFor(trackData);
       pool.set(trackData.id, el);
 
       while (pool.size > PREFETCH_AUDIO_POOL_SIZE) {
@@ -65,9 +87,40 @@ export function PlayerProvider({ children }) {
     const requestId = ++playRequestIdRef.current;
     setTrack(trackData);
     setMyReaction(trackData.my_reaction ?? null);
-    const audio = audioRef.current;
-    audio.src = api.streamUrl(trackData.id);
-    audio.play().catch(() => {});
+
+    const pool = prefetchPoolRef.current;
+    const prevAudio = audioElRef.current;
+    const trackIdStr = String(trackData.id);
+
+    // Prefer whatever's already warming up in the background pool over
+    // starting a fresh request on the old element -- that hand-off is the
+    // whole point of prefetching. Falls back to reusing the current
+    // element (replaying the same track) or, failing that, a brand new
+    // one (cold start / deep link where nothing was prefetched yet).
+    let nextAudio;
+    if (pool.has(trackData.id)) {
+      nextAudio = pool.get(trackData.id);
+      pool.delete(trackData.id);
+    } else if (prevAudio.dataset.trackId === trackIdStr) {
+      nextAudio = prevAudio;
+    } else {
+      nextAudio = createAudioFor(trackData);
+    }
+
+    if (prevAudio !== nextAudio) {
+      prevAudio.pause();
+    }
+
+    // Update the ref synchronously (not just via setState) so a second
+    // playTrack call fired in the same tick -- e.g. a rapid double-tap on
+    // skip -- sees the correct "current" element instead of a stale one.
+    audioElRef.current = nextAudio;
+    setAudioEl(nextAudio);
+
+    setProgress(0);
+    setDuration(nextAudio.duration || 0);
+    nextAudio.currentTime = 0;
+    nextAudio.play().catch(() => {});
     setIsPlaying(true);
 
     if (locationRef.current.pathname.startsWith("/song/")) {
@@ -97,7 +150,7 @@ export function PlayerProvider({ children }) {
   }, [prefetchTrackAudio, navigate]);
 
   const togglePlay = useCallback(() => {
-    const audio = audioRef.current;
+    const audio = audioElRef.current;
     if (audio.paused) {
       audio.play().catch(() => {});
       setIsPlaying(true);
@@ -108,7 +161,7 @@ export function PlayerProvider({ children }) {
   }, []);
 
   const seekTo = useCallback((seconds) => {
-    audioRef.current.currentTime = seconds;
+    audioElRef.current.currentTime = seconds;
     setProgress(seconds);
   }, []);
 
@@ -120,20 +173,27 @@ export function PlayerProvider({ children }) {
     if (queue.prev) playTrack(queue.prev, "queue");
   }, [queue, playTrack]);
 
+  // Listeners follow whichever element is actually "current" -- re-attached
+  // every time playTrack() swaps in a different (pre-warmed) element rather
+  // than staying bound to one fixed <audio> for the whole session.
   useEffect(() => {
-    const audio = audioRef.current;
+    const audio = audioEl;
     const onTime = () => setProgress(audio.currentTime);
     const onLoaded = () => setDuration(audio.duration || 0);
     const onEnd = () => playNext();
     audio.addEventListener("timeupdate", onTime);
     audio.addEventListener("loadedmetadata", onLoaded);
     audio.addEventListener("ended", onEnd);
+    // A prefetched/pooled element may have already finished loading
+    // metadata before it was promoted to "current", in which case the
+    // event above already fired and we'd otherwise miss the duration.
+    if (audio.duration) setDuration(audio.duration);
     return () => {
       audio.removeEventListener("timeupdate", onTime);
       audio.removeEventListener("loadedmetadata", onLoaded);
       audio.removeEventListener("ended", onEnd);
     };
-  }, [playNext]);
+  }, [audioEl, playNext]);
 
   const react = useCallback(
     async (reaction) => {
