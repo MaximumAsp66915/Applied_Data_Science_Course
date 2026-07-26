@@ -18,3 +18,5 @@ app/model/sqlite_db_model/
 app/db/db_files/
 app/db/sqlite_db/
 .idea/
+app/frontend/dist/
+app/frontend/node_modules/

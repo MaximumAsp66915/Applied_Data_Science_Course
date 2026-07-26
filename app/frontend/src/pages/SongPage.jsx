@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ChevronDown, SkipBack, SkipForward, Play, Pause, ThumbsUp, ThumbsDown, User } from "lucide-react";
 import { api } from "../lib/api";
 import { pollPending } from "../lib/pollPending";
 import { usePlayer } from "../context/PlayerContext";
+import { useUser } from "../context/UserContext";
 import { Cover } from "../components/TrackCard";
 import ReactionWaveform from "../components/ReactionWaveform";
 import TrackDetailsSheet from "../components/TrackDetailsSheet";
@@ -33,6 +34,7 @@ export default function SongPage() {
     playPrev,
     react,
   } = usePlayer();
+  const { profile } = useUser();
   const [showAllUploaders, setShowAllUploaders] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [details, setDetails] = useState(null);
@@ -97,6 +99,27 @@ export default function SongPage() {
       stopPolling();
     };
   }, [track?.id]);
+
+  // `details.reactions` is a snapshot from the one-time getTrackDetails
+  // fetch above, so on its own it goes stale the moment you tap like/dislike
+  // -- the count next to it updates instantly (it reads track.likes_count
+  // from PlayerContext), but your own avatar in the list below wouldn't
+  // move until the track changed and details got refetched. Patching the
+  // current user's row into the fetched list here keeps the two in sync
+  // without waiting on a round trip.
+  const detailsWithMyReaction = useMemo(() => {
+    if (!details || !profile?.user_id) return details;
+    const others = (details.reactions || []).filter((r) => r.user_id !== profile.user_id);
+    if (!myReaction) return { ...details, reactions: others };
+    const mine = {
+      user_id: profile.user_id,
+      first_name: profile.first_name,
+      username: profile.username,
+      profile_photo: profile.profile_photo,
+      sentiment: myReaction,
+    };
+    return { ...details, reactions: [mine, ...others] };
+  }, [details, myReaction, profile]);
 
   if (!track) {
     return (
@@ -239,7 +262,7 @@ export default function SongPage() {
       <TrackDetailsSheet
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
-        details={details}
+        details={detailsWithMyReaction}
         loading={detailsLoading}
         track={track}
         dragY={swipe.dragY}
