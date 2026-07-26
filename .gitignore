@@ -1,25 +1,20 @@
-/app/db/external_db/external_db_session.session
-/app/db/internal_db/internal_db_session.session
-/app/.env*
-/app/.env
-/app/utils/loggers/files/
-/app/model/sqlite_db_model/
-/app/db/db_files/
-/app/db/sqlite_db/
-/app/db/external_db/external_db_key.key
-/app/db/internal_db/internal_db_key.key
-/.idea/
-/app/collect_data.session
-*.pyc
+# Security & Session files
+*.session
+*.key
+.env*
 
-# Ignore Python cache & virtual environments
+# Python
 __pycache__/
 *.py[cod]
 .venv/
-app/.venv/
 
-# Ignore Node dependencies & build artifacts
+# Node
 node_modules/
-app/frontend/node_modules/
 dist/
-app/frontend/dist/
+
+# Project-specific logs & DBs
+app/utils/loggers/files/
+app/model/sqlite_db_model/
+app/db/db_files/
+app/db/sqlite_db/
+.idea/
