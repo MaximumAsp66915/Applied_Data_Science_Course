@@ -4,7 +4,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Body, Request
 from fastapi.responses import StreamingResponse
 
-from ..config import settings, get_public_domain
+from ..config import settings
 from ..telegram_auth import require_telegram_user, optional_telegram_user, TelegramUser
 from .. import repository as repo
 from ..serializers import (
@@ -32,27 +32,34 @@ async def _viewer_id(tg_user: TelegramUser | None) -> int | None:
 
 
 def _build_share_caption(track_id: int, row: dict) -> str:
-    """Caption attached to a track sent through the download button: a
-    direct link to this track's song page (works in any browser, no
-    Telegram required) plus a "via ..." deep link that reopens the Mini
-    App straight onto this same track (https://t.me/{bot}?startapp=track_{id}
-    -- start_param becomes "track_{id}" on the other end). Either link is
-    simply omitted if its underlying setting isn't configured yet."""
+    """Caption attached to a track sent through the download button.
+
+    Deliberately does NOT use `get_public_domain()` here: that URL is a
+    trycloudflare.com tunnel that's re-issued on every restart (so old
+    captions would dead-link) and, since it's a plain website, opening it
+    launches a standalone in-app browser instead of Telegram itself.
+
+    Instead both lines are Telegram deep links, so the whole thing always
+    opens back inside Telegram:
+      - the track title/performer links straight to this track's song page
+        via https://t.me/{bot}?startapp=track_{id} -- App.jsx's start_param
+        router (see the START_PARAM_TRACK regex there) reads "track_{id}"
+        off of that and navigates to /song/{id} on launch.
+      - a second "via ..." line links to the bot itself, for anyone who
+        just wants to open the app rather than jump to this one track.
+
+    Both lines are simply omitted if `bot_username` isn't configured yet.
+    """
     title = row.get("title") or "Untitled track"
     performer = row.get("performer") or "Unknown artist"
     label = html.escape(f"{title} — {performer}")
 
-    lines = []
-    domain = get_public_domain()
-    if domain:
-        lines.append(f'<a href="{domain}/song/{track_id}">{label}</a>')
-    else:
-        lines.append(label)
+    if not settings.bot_username:
+        return label
 
-    if settings.bot_username:
-        lines.append(f'via <a href="https://t.me/{settings.bot_username}?startapp=track_{track_id}">SUT Music</a>')
-
-    return "\n".join(lines)
+    deep_link = f"https://t.me/{settings.bot_username}?startapp=track_{track_id}"
+    bot_link = f"https://t.me/{settings.bot_username}"
+    return f'<a href="{deep_link}">{label}</a>\nvia <a href="{bot_link}">SUT Music</a>'
 
 
 @router.post("/{track_id}/download")

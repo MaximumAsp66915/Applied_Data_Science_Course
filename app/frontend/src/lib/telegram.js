@@ -25,6 +25,15 @@ export function getTelegramUser() {
   return tg?.initDataUnsafe?.user ?? null;
 }
 
+// Whatever was appended after `?startapp=` on the https://t.me/{bot}?startapp=...
+// link that opened this Mini App (e.g. "track_123"), or null if it was opened
+// any other way (menu button, direct chat button, local dev). This is what
+// lets a shared song link put the user straight onto that song's page -- see
+// the deep-link redirect in App.jsx.
+export function getStartParam() {
+  return tg?.initDataUnsafe?.start_param ?? null;
+}
+
 // Raw signed init data string. This MUST be sent as the `X-Telegram-Init-Data`
 // header on every API call so the backend can verify the request really came
 // from Telegram (HMAC check against the bot token) and extract the telegram_id

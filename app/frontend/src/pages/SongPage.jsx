@@ -9,7 +9,8 @@ import { Cover } from "../components/TrackCard";
 import ReactionWaveform from "../components/ReactionWaveform";
 import TrackDetailsSheet from "../components/TrackDetailsSheet";
 import useSwipeUp from "../lib/useSwipeUp";
-import { hapticImpact, showAlert } from "../lib/telegram";
+import { hapticImpact } from "../lib/telegram";
+import { showToast } from "../components/Toast";
 
 // "Shared by" can list an arbitrary number of uploaders -- past this many
 // names we collapse the rest into "+N more" instead of letting the line
@@ -49,14 +50,14 @@ export default function SongPage() {
     try {
       const { data } = await api.downloadTrack(track.id);
       if (data?.sent) {
-        showAlert("Sent! Check your chat with the bot.");
+        showToast("Sent! Check your chat with the bot.");
       } else if (data?.reason === "not_started") {
-        showAlert("Please exit the mini app, press Start in your chat with the bot, then try again.");
+        showToast("Please exit the mini app, press Start in your chat with the bot, then try again.");
       } else {
-        showAlert("Couldn't send the track. Please try again.");
+        showToast("Couldn't send the track. Please try again.");
       }
     } catch {
-      showAlert("Couldn't send the track. Please try again.");
+      showToast("Couldn't send the track. Please try again.");
     } finally {
       setDownloading(false);
     }
