@@ -121,7 +121,6 @@ export function PlayerProvider({ children }) {
     setDuration(nextAudio.duration || 0);
     nextAudio.currentTime = 0;
     nextAudio.play().catch(() => {});
-    setIsPlaying(true);
 
     if (locationRef.current.pathname.startsWith("/song/")) {
       navigate(`/song/${trackData.id}`, { replace: true });
@@ -153,10 +152,8 @@ export function PlayerProvider({ children }) {
     const audio = audioElRef.current;
     if (audio.paused) {
       audio.play().catch(() => {});
-      setIsPlaying(true);
     } else {
       audio.pause();
-      setIsPlaying(false);
     }
   }, []);
 
@@ -181,17 +178,25 @@ export function PlayerProvider({ children }) {
     const onTime = () => setProgress(audio.currentTime);
     const onLoaded = () => setDuration(audio.duration || 0);
     const onEnd = () => playNext();
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
     audio.addEventListener("timeupdate", onTime);
     audio.addEventListener("loadedmetadata", onLoaded);
     audio.addEventListener("ended", onEnd);
+    audio.addEventListener("play", onPlay);
+    audio.addEventListener("pause", onPause);
     // A prefetched/pooled element may have already finished loading
-    // metadata before it was promoted to "current", in which case the
-    // event above already fired and we'd otherwise miss the duration.
+    // metadata (or, in principle, already be playing) before it was
+    // promoted to "current", in which case the events above already fired
+    // and we'd otherwise miss the duration / play state.
     if (audio.duration) setDuration(audio.duration);
+    setIsPlaying(!audio.paused);
     return () => {
       audio.removeEventListener("timeupdate", onTime);
       audio.removeEventListener("loadedmetadata", onLoaded);
       audio.removeEventListener("ended", onEnd);
+      audio.removeEventListener("play", onPlay);
+      audio.removeEventListener("pause", onPause);
     };
   }, [audioEl, playNext]);
 

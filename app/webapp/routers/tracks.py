@@ -67,7 +67,7 @@ async def _build_share_caption(track_id: int, row: dict) -> str:
 
     deep_link = f"https://t.me/{bot_username}?startapp=track_{track_id}"
     bot_link = f"https://t.me/{bot_username}?startapp"
-    return f'<a href="{deep_link}">{label}</a>/via <a href="{bot_link}">SUT Music</a>'
+    return f'<a href="{deep_link}">{label}</a>/<a href="{bot_link}">Via SUT Music</a>'
 
 
 @router.post("/{track_id}/download")
