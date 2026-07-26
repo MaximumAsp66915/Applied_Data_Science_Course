@@ -66,7 +66,7 @@ def db_connection_wrapper(func: Optional[Callable] = None,
 
             except Exception as e:
                 attempts += 1
-                if func.__name__ != self.make_connection.__name__:
+                if func.__name__ not in (self.make_connection.__name__, self.reset.__name__):
                     if isinstance(e, asyncpg.TooManyConnectionsError):
                         ErrorLogger.background_log_error(6, f"Too many connections, skipping reset.", e)
                         break  # Do not retry/reset here!
@@ -236,6 +236,11 @@ class External_DB_Connection(PostgreSQL):
     async def reset(self) -> bool:
         async with External_DB_Connection._lock:
             try:
+                if self.pool is None:
+                    # Nothing to health-check yet (e.g. very first call in
+                    # this process) -- skip straight to building one instead
+                    # of calling .acquire() on None.
+                    raise ConnectionError("no pool yet")
                 async with asyncio.timeout(5):
                     async with self.pool.acquire() as conn:
                         await conn.fetchval("SELECT 1")
@@ -245,7 +250,7 @@ class External_DB_Connection(PostgreSQL):
                 # ErrorLogger.async_log_error(6, f"Pool health check failed. Resetting pool...", e)
                 await self.disconnect()
                 await self.make_connection()
-                return conn is not None
+                return self.pool is not None
 
     @db_connection_wrapper
     async def disconnect(self):
