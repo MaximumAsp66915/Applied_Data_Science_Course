@@ -19,4 +19,4 @@ numpy==1.26.4
 # they're sklearn.preprocessing.LabelEncoder instances, so sklearn must be
 # installed to load them even though only their plain .classes_ array is
 # actually read.
-scikit-learn==1.5.2
+scikit-learn==1.5.2c

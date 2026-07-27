@@ -1397,7 +1397,8 @@ async def search_artists(q: str, limit: int, offset: int) -> list[Row]:
 # is configured -- see routers/suggestions.py)
 # ---------------------------------------------------------------------------
 
-async def suggest_track_for_user(user_id: Optional[int]) -> Optional[Row]:
+async def suggest_track_for_user(user_id: Optional[int], exclude_ids: Optional[set[int]] = None) -> Optional[Row]:
+    exclude_ids = exclude_ids or set()
     if user_id:
         query = """
             SELECT t.* FROM tracks t
@@ -1406,9 +1407,11 @@ async def suggest_track_for_user(user_id: Optional[int]) -> Optional[Row]:
         """
         result = await conn.execute_raw_query(query, [user_id])
         rows = _rows(result.data) if result.success and result.data else []
+        rows = [r for r in rows if r.get("id") not in exclude_ids] or rows
         if rows:
             return random.choice(rows[:10])
     top = await get_top_tracks(limit=25)
+    top = [r for r in top if r.get("id") not in exclude_ids] or top
     if not top:
         return None
     return random.choice(top)

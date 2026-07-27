@@ -45,3 +45,15 @@ mbid_cache = AutoExpiringDict(ttl_seconds=7 * 24 * 3600, cleanup_interval=3600, 
 # name. Same 6-hour TTL reasoning as lastfm_cache -- cover art for a given
 # artist doesn't change on any timescale this app cares about.
 fanart_cache = AutoExpiringDict(ttl_seconds=6 * 3600, cleanup_interval=600, max_keys=20000)
+
+# Per-user "already shown as a /suggestions/next pick recently" tracker.
+# Neither the external engine's /suggest (a deterministic top-1 pick) nor
+# our own reacted-tracks exclude list know anything about a track the user
+# was just shown but hasn't reacted to -- so without this, hitting "try
+# another", or simply closing and reopening the app, returns the exact same
+# pick every time (nothing about the request changes). 30 minutes is enough
+# to ride out a "try another" spam session or a quick relaunch while still
+# naturally letting a track come back into rotation later rather than
+# excluding it forever. max_keys is generous since this is one small list
+# per active user, not per-request data.
+recently_suggested_cache = AutoExpiringDict(ttl_seconds=1800, cleanup_interval=300, max_keys=20000)
