@@ -38,6 +38,7 @@ from . import schema
 from . import lastfm as lastfm_client
 from . import fanart as fanart_client
 from . import enrichment_queue
+from . import engine_client
 from .cache import top_lists_cache
 from .db_conn import conn
 from .media import cover_url_for
@@ -670,26 +671,47 @@ async def _first_unheard_from_artist_ids(
 SAME_ARTIST_SUGGESTION_CHANCE = 0.9
 
 
-async def _suggest_from_engine(user_id: Optional[int]) -> Optional[Row]:
+async def get_reacted_track_ids(user_id: int) -> list[int]:
+    """All track ids this user has reacted to at all (like or dislike) --
+    used as the exclude set on recommendation-engine calls so it doesn't
+    suggest something already reacted to (see routers/suggestions.py)."""
+    rows = await _fetch_all("SELECT track_id FROM track_reactions WHERE user_id = $1;", user_id)
+    return [r["track_id"] for r in rows]
+
+
+async def get_liked_artist_ids(user_id: int) -> list[int]:
+    """Artist ids this user has positively reacted to, directly or via one
+    of their tracks -- every track reaction already mirrors to
+    artist_reactions for each of the track's artists (see set_reaction
+    above). Used to give the recommendation engine a fresh signal for users
+    it wasn't necessarily trained on yet (see engine_client.py)."""
+    rows = await _fetch_all(
+        "SELECT DISTINCT artist_id FROM artist_reactions WHERE user_id = $1 AND sentiment = 'like';",
+        user_id,
+    )
+    return [r["artist_id"] for r in rows]
+
+
+async def _suggest_from_engine(
+    user_id: Optional[int], exclude_track_ids: Optional[set[int]] = None
+) -> Optional[Row]:
     """Ask the external recommendation engine for a pick, same contract as
     GET /api/suggestions/next (routers/suggestions.py): configured via
     SUGGESTION_ENGINE_URL, returns None (never raises) if it's not
     configured or the call fails for any reason, so the caller can fall
-    through to the in-house heuristic below."""
-    if not settings.suggestion_engine_url:
+    through to the in-house heuristic below. Passes along whatever
+    already-seen tracks the caller has on hand, and (if the user isn't one
+    the engine was trained on) their liked artists as a fallback signal --
+    see engine_client.suggest_one."""
+    reacted_artist_ids = await get_liked_artist_ids(user_id) if user_id else None
+    data = await engine_client.suggest_one(
+        user_id=user_id,
+        reacted_artist_ids=reacted_artist_ids,
+        exclude_track_ids=list(exclude_track_ids) if exclude_track_ids else None,
+    )
+    if not data:
         return None
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(
-                f"{settings.suggestion_engine_url.rstrip('/')}/suggest",
-                params={"user_id": user_id} if user_id else {},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-    except (httpx.HTTPError, ValueError, KeyError):
-        return None
-    track_id = data.get("track_id") or data.get("id")
-    return await get_track(track_id) if track_id else None
+    return await get_track(data["track_id"])
 
 
 async def _suggest_unheard_track(
@@ -711,7 +733,7 @@ async def _suggest_unheard_track(
          the current one and that we already have indexed locally, then
          finally to a fully random other artist.
     """
-    engine_row = await _suggest_from_engine(user_id)
+    engine_row = await _suggest_from_engine(user_id, exclude_track_ids=listened_ids)
     if engine_row and engine_row.get("id") not in listened_ids:
         return engine_row
 

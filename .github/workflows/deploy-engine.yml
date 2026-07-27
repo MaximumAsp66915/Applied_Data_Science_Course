@@ -1,0 +1,79 @@
+name: Deploy engine to server
+
+# Only fires when something under engine/ actually changed -- pushes that
+# only touch app/ or repo-root files (this workflow included) don't trigger
+# a deploy. Mirrors deploy-app.yml exactly, just for the other half of the
+# stack -- this is what guarantees an engine-only push never restarts (or
+# even touches) the running app/bot/webapp/frontend, and an app-only push
+# never restarts the engine.
+on:
+  push:
+    branches: [project]
+    paths:
+      - "engine/**"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+
+      # .venv on the server is provisioned once, by hand (bash setup_venv.sh),
+      # and reused across deploys -- never overwritten here, same as the
+      # app's .venv in deploy-app.yml. engine.log is excluded so a deploy
+      # never clobbers whatever the currently-running process is writing
+      # to. .env is excluded so a manually-created host override (see
+      # .env.example) survives every deploy instead of being wiped by
+      # --delete -- unlike app/.env, engine/.env holds no secrets that need
+      # restoring, so there's nothing to copy back afterward.
+      - name: Sync engine/ to the server
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key -p $SSH_PORT -o StrictHostKeyChecking=yes" \
+            --exclude ".venv" \
+            --exclude "__pycache__" \
+            --exclude "*.pyc" \
+            --exclude ".ipynb_checkpoints" \
+            --exclude "engine.log" \
+            --exclude ".env" \
+            ./engine/ "$SSH_USER@$SSH_HOST:/srv/bots/telegram/SUTMusic_app/engine/"
+
+      - name: Restart the engine service
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" -o StrictHostKeyChecking=yes "$SSH_USER@$SSH_HOST" '
+            set -euo pipefail
+            BASE=/srv/bots/telegram/SUTMusic_app
+
+            # Keep the installed unit in sync with whatever shipped in this deploy.
+            mkdir -p ~/.config/systemd/user
+            cp "$BASE/engine/deploy/sutengine.service" ~/.config/systemd/user/sutengine.service
+            chmod +x "$BASE/engine/deploy/start.sh" "$BASE/engine/setup_venv.sh"
+
+            systemctl --user daemon-reload
+            systemctl --user enable sutengine.service
+            systemctl --user restart sutengine.service
+          '
+
+      - name: Clean up SSH key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

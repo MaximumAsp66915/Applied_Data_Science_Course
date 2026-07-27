@@ -1,0 +1,22 @@
+# ---------------------------------------------------------------------------
+# Recommendation engine microservice -- deliberately its own requirements
+# file, installed into its own venv (engine/.venv), completely separate
+# from app/requirements.txt. See README.md for why, and setup_venv.sh to
+# create the venv and install these.
+# ---------------------------------------------------------------------------
+
+# Serving
+fastapi==0.115.5
+uvicorn[standard]==0.32.0
+
+# Inference over the exported model_params/ artifacts. No torch: inference
+# only ever does `user_vector @ artist_emb.T` against the already-exported
+# .npy embedding matrices (see recommender.py's docstring) -- model_state.pt
+# is not loaded by this service.
+numpy==1.26.4
+
+# Required to unpickle model_params/user_enc.pkl and artist_enc.pkl --
+# they're sklearn.preprocessing.LabelEncoder instances, so sklearn must be
+# installed to load them even though only their plain .classes_ array is
+# actually read.
+scikit-learn==1.5.2

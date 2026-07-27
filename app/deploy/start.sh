@@ -16,6 +16,13 @@
 # writes it to url.txt. All five files live directly under $APP_DIR, as
 # requested.
 #
+# NOTE: the recommendation engine (../engine) is deliberately NOT part of
+# this stack/unit -- it has its own systemd unit (engine/deploy/
+# sutengine.service) and its own GitHub Action (.github/workflows/
+# deploy-engine.yml, triggered only by changes under engine/), so a
+# model/engine-only deploy never restarts the bot/webapp/frontend here, and
+# vice versa. See engine/README.md.
+#
 # The script itself stays in the foreground and waits on all four child
 # processes: if any one of them dies, it tears the rest down and exits
 # non-zero so systemd's Restart=always brings the whole stack back up
