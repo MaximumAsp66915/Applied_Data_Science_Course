@@ -4,7 +4,7 @@ from ..telegram_auth import optional_telegram_user, TelegramUser
 from .. import repository as repo
 from .. import engine_client
 from ..serializers import serialize_track
-from ..cache import recently_suggested_cache
+from ..cache import recently_suggested_cache, recently_liked_artists_cache
 
 router = APIRouter(prefix="/api/suggestions", tags=["suggestions"])
 
@@ -26,7 +26,16 @@ async def get_suggestion(tg_user: TelegramUser | None = Depends(optional_telegra
     shown them, "try another" (and even just closing and reopening the
     app) would hand back the exact same track every time. recently_suggested_cache
     holds a short-lived, per-user list of picks so each new call excludes
-    what the viewer was just shown, on top of what they've reacted to."""
+    what the viewer was just shown, on top of what they've reacted to.
+
+    On top of that, the exclude set also folds in the viewer's default
+    listening-history playlist (their last 100 plays -- see
+    repository.get_recent_history_exclude_ids) so a recently-heard track
+    doesn't get suggested right back. The one carve-out: a history track
+    is left eligible if its artist was liked in the *current session*
+    (recently_liked_artists_cache) -- liking an artist is a strong enough
+    signal to immediately reopen their catalog, even to something from
+    days-old history."""
     viewer_id = None
     if tg_user:
         viewer = await repo.get_user_by_chat_id(tg_user["id"])
@@ -36,7 +45,15 @@ async def get_suggestion(tg_user: TelegramUser | None = Depends(optional_telegra
 
     if viewer_id:
         reacted_artist_ids = await repo.get_liked_artist_ids(viewer_id)
-        exclude_track_ids = set(await repo.get_reacted_track_ids(viewer_id) or []) | recently_shown
+        session_liked_artist_ids = await recently_liked_artists_cache.get(viewer_id) or []
+        recent_history_ids = await repo.get_recent_history_exclude_ids(
+            viewer_id, liked_artist_ids=session_liked_artist_ids
+        )
+        exclude_track_ids = (
+            set(await repo.get_reacted_track_ids(viewer_id) or [])
+            | recently_shown
+            | set(recent_history_ids)
+        )
         suggestion = await engine_client.suggest_one(
             user_id=viewer_id,
             reacted_artist_ids=reacted_artist_ids,

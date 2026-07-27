@@ -64,6 +64,7 @@ from . import lastfm as lastfm_client
 from .cache import top_lists_cache
 from .db_conn import conn
 from .config import settings
+from .cache import recently_liked_artists_cache
 
 Row = dict[str, Any]
 
@@ -509,6 +510,16 @@ async def set_reaction(track_id: int, user_id: int, reaction: Optional[str]) -> 
 
         for artist_id in artist_ids:
             await _apply_received_reaction_change(Artist(artist_id), previous, reaction)
+
+        # Session-scoped "just liked this artist" signal -- see
+        # cache.recently_liked_artists_cache for why this exists and why
+        # it's deliberately separate from the all-time get_liked_artist_ids.
+        liked_now = set(await recently_liked_artists_cache.get(user_id) or [])
+        if reaction == "like":
+            liked_now |= set(artist_ids)
+        else:
+            liked_now -= set(artist_ids)
+        await recently_liked_artists_cache.set(user_id, list(liked_now))
     except Exception:
         # Artist-side bookkeeping is secondary to the track reaction itself
         # (already saved above). A problem here -- e.g. a bad DB trigger on
@@ -632,6 +643,27 @@ async def _get_default_playlist_track_entry(playlist_id: int, track_id: int) -> 
     return entries[0] if entries else None
 
 
+async def _remove_entry_and_compact(playlist_id: int, entry: PlaylistTracks, removed_position: int) -> None:
+    """Deletes `entry` and shifts every later entry's position down by one,
+    so the playlist stays a contiguous 1..N sequence with no gap where the
+    removed entry used to sit. Used by record_play_and_get_queue when a
+    track that's already in the listening-history playlist gets replayed:
+    the old occurrence is removed outright (not left in place, not swapped
+    for anything) and the list is compacted before the fresh play is
+    appended at the end -- see record_play_and_get_queue for why."""
+    await entry.delete()
+    later_entries = await PlaylistTracks.search_playlist_tracks(
+        conditions={"playlist_id": ("=", playlist_id), "position": (">", removed_position)},
+        limit=DEFAULT_PLAYLIST_MAX_SIZE + 1,
+        order_by="position",
+        descending=False,
+    )
+    for later_entry in later_entries:
+        pos = await later_entry.get_parameter("position")
+        if pos is not None:
+            await later_entry.update_parameter("position", pos - 1)
+
+
 async def _get_default_playlist_track_at_position(playlist_id: int, position: int) -> Optional[PlaylistTracks]:
     entries = await PlaylistTracks.search_playlist_tracks(
         conditions={"playlist_id": ("=", playlist_id), "position": ("=", position)},
@@ -690,6 +722,54 @@ async def get_liked_artist_ids(user_id: int) -> list[int]:
         user_id,
     )
     return [r["artist_id"] for r in rows]
+
+
+async def get_recent_history_exclude_ids(
+    user_id: int, liked_artist_ids: Optional[list[int]] = None
+) -> list[int]:
+    """Track ids from the user's default listening-history playlist (their
+    last DEFAULT_PLAYLIST_MAX_SIZE plays -- see get_or_create_default_playlist)
+    that should be kept OUT of engine suggestions, since re-suggesting
+    something just listened to feels stale.
+
+    One deliberate exception: a track is left OUT of this exclude list (i.e.
+    still eligible to be suggested) if any of its artists is in
+    `liked_artist_ids` -- an artist the user has *currently* liked. The
+    product intent: liking an artist is a strong, fresh signal that should
+    open the door back up to that artist's catalog immediately, even for a
+    track that's sitting in recent history from days ago. Once that like
+    itself ages out of "current" (the caller decides what counts as current
+    -- see routers/suggestions.py, which passes the session's liked-artist
+    set), the track goes back to being excluded like anything else in
+    history.
+
+    Pass liked_artist_ids explicitly rather than refetching it here, since
+    callers already have it (or a session-scoped variant of it) on hand and
+    the exact scope of "currently liked" is a caller decision, not this
+    function's."""
+    playlist_id = await get_or_create_default_playlist(user_id)
+    if not playlist_id:
+        return []
+    liked_set = set(liked_artist_ids or [])
+    rows = await _fetch_all(
+        """
+        SELECT t.id AS track_id, t.artists_id AS artists_id
+        FROM playlist_tracks pt
+        JOIN tracks t ON t.id = pt.track_id
+        WHERE pt.playlist_id = $1
+        ORDER BY pt.position DESC
+        LIMIT $2;
+        """,
+        playlist_id,
+        DEFAULT_PLAYLIST_MAX_SIZE,
+    )
+    exclude_ids: list[int] = []
+    for row in rows:
+        track_artist_ids = set(row.get("artists_id") or [])
+        if track_artist_ids & liked_set:
+            continue  # currently-liked artist -- leave eligible, don't exclude
+        exclude_ids.append(row["track_id"])
+    return exclude_ids
 
 
 async def _suggest_from_engine(
@@ -785,6 +865,15 @@ async def record_play_and_get_queue(track_id: int, user_id: int) -> dict:
         playlist's position ordering
       * next: an unheard suggestion (see _suggest_unheard_track)
 
+    If `track_id` is already somewhere in the playlist (a replay), that
+    older entry is removed outright -- not reused in place, not swapped
+    for anything -- and every later entry's position is shifted down to
+    close the resulting gap (see _remove_entry_and_compact), before the
+    fresh play is appended at the end like any first-time play. So a
+    replay always reads as "just listened to this now" and moves to the
+    front of the history, rather than silently staying parked at its
+    original spot.
+
     The trace is capped at the most recent DEFAULT_PLAYLIST_MAX_SIZE plays,
     so the oldest entry falls off once the history grows past the limit.
     """
@@ -794,18 +883,28 @@ async def record_play_and_get_queue(track_id: int, user_id: int) -> dict:
 
     async with PlaylistTracks._lock:
         cached_position = default_playlist_cursor_cache.get(user_id)
-        entry = await _get_default_playlist_track_entry(playlist_id, track_id)
-        is_new_track = entry is None
+        existing_entry = await _get_default_playlist_track_entry(playlist_id, track_id)
 
-        if entry is None:
-            position = await _next_playlist_position(playlist_id)
-            create_res = await PlaylistTracks.create(
-                playlist_id=playlist_id, track_id=track_id, position=position
-            )
-            if create_res.success:
-                entry = create_res.data
+        if existing_entry is not None:
+            # A replay: don't reuse the old slot in place. Remove it
+            # outright and compact the gap it leaves, then fall through to
+            # append a fresh entry at the end below -- a replay should
+            # read as "just listened to this now", moving it to the front
+            # of the history the same way a first-time play would.
+            removed_position = await existing_entry.get_parameter("position")
+            if removed_position is not None:
+                await _remove_entry_and_compact(playlist_id, existing_entry, removed_position)
             else:
-                entry = await _get_default_playlist_track_entry(playlist_id, track_id)
+                await existing_entry.delete()
+
+        position = await _next_playlist_position(playlist_id)
+        create_res = await PlaylistTracks.create(
+            playlist_id=playlist_id, track_id=track_id, position=position
+        )
+        if create_res.success:
+            entry = create_res.data
+        else:
+            entry = await _get_default_playlist_track_entry(playlist_id, track_id)
 
         current_position = await entry.get_parameter("position") if entry else None
         if current_position is not None:

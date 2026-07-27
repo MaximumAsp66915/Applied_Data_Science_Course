@@ -57,3 +57,18 @@ fanart_cache = AutoExpiringDict(ttl_seconds=6 * 3600, cleanup_interval=600, max_
 # excluding it forever. max_keys is generous since this is one small list
 # per active user, not per-request data.
 recently_suggested_cache = AutoExpiringDict(ttl_seconds=1800, cleanup_interval=300, max_keys=20000)
+
+# Per-user "artists liked in this session" tracker. Product intent: liking
+# an artist is a fresh, deliberate signal that should immediately reopen
+# that artist's catalog to suggestions -- even for a track sitting in the
+# user's last-100 listening history from days ago (see
+# repository.get_recent_history_exclude_ids, which takes this set as the
+# "don't exclude these artists' history tracks" list). It's intentionally
+# session-scoped (same 30-minute TTL as recently_suggested_cache) rather
+# than "ever liked" -- get_liked_artist_ids already covers all-time likes
+# for the engine's personalization signal; this is specifically the
+# short-lived "just happened" signal the exclude-list carve-out cares
+# about. set_reaction adds an artist here on a fresh like, and removes it
+# again if the user changes their mind (dislikes or clears the reaction)
+# before the window lapses.
+recently_liked_artists_cache = AutoExpiringDict(ttl_seconds=1800, cleanup_interval=300, max_keys=20000)
