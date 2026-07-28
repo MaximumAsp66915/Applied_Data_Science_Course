@@ -51,17 +51,22 @@ export default function Profile() {
           return;
         }
 
-        const [statsRes, relRes, tracksRes, likedTracksRes] = await Promise.all([
+        const [statsRes, relRes, tracksRes, likedTracksRes] = await Promise.allSettled([
           api.getUserStats(targetId),
           api.getUserRelations(targetId),
           api.getUserTracks(targetId),
           api.getUserLikedTracks(targetId),
         ]);
         if (cancelled) return;
-        setStats(statsRes.data);
-        setRelations(relRes.data);
-        setTracks(tracksRes.data.items ?? []);
-        setLikedTracks(likedTracksRes.data.items ?? []);
+        // Each section degrades independently -- one endpoint failing
+        // (network hiccup, a 404/500 on the backend, etc.) shows that
+        // section as empty rather than leaving the whole page stuck on
+        // nothing-but-name-and-avatar, which is what a single shared
+        // Promise.all used to do the moment any one of these rejected.
+        if (statsRes.status === "fulfilled") setStats(statsRes.value.data);
+        if (relRes.status === "fulfilled") setRelations(relRes.value.data);
+        if (tracksRes.status === "fulfilled") setTracks(tracksRes.value.data.items ?? []);
+        if (likedTracksRes.status === "fulfilled") setLikedTracks(likedTracksRes.value.data.items ?? []);
       } finally {
         if (!cancelled) setLoading(false);
       }
