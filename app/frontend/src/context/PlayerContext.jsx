@@ -205,11 +205,38 @@ export function PlayerProvider({ children }) {
   // `outcome` says why the *current* track is being left: "completed" when
   // the audio element's own 'ended' event fires this (see onEnd below),
   // "skipped" for every other case -- i.e. the user actually pressed Next.
-  const playNext = useCallback((outcome = "skipped") => {
-    if (!queue.next) return;
-    pendingOutcomeRef.current = outcome;
-    playTrack(queue.next, "queue");
-  }, [queue, playTrack]);
+  //
+  // Only auto-advance (outcome === "completed") stays silent when nothing's
+  // queued -- that's the deliberate "pause and wait" behavior for a
+  // fixed-order program (a profile's sent/liked tracks) that just ran out.
+  // A manual Next press with nothing queued still asks the backend again:
+  // by then the active program has already fallen back to the artist
+  // cascade (see repository._arm_artist_fallback), so re-asking is what
+  // actually surfaces that fallback instead of the button doing nothing.
+  const playNext = useCallback(
+    async (outcome = "skipped") => {
+      if (queue.next) {
+        pendingOutcomeRef.current = outcome;
+        playTrack(queue.next, "queue");
+        return;
+      }
+      if (outcome === "completed") return; // auto-advance: stay paused, nothing queued
+
+      const current = trackRef.current;
+      if (!current) return;
+      try {
+        const { data } = await api.getTrackQueue(current.id, "queue", {
+          lastTrackId: current.id,
+          lastOutcome: "skipped",
+        });
+        setQueue(data);
+        if (data?.next) playTrack(data.next, "queue");
+      } catch {
+        // Nothing to play -- leave the player paused where it is.
+      }
+    },
+    [queue, playTrack]
+  );
 
   const playPrev = useCallback(() => {
     const audio = audioElRef.current;

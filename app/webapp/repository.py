@@ -241,12 +241,23 @@ async def get_user_liked_tracks(user_id: int, limit: int, offset: int) -> list[R
     profile page's "Liked tracks" rail (see get_user_relations's
     top_liked_artists, the artist-level version of the same idea) and is
     also what the player walks through track-by-track when someone starts
-    listening from that rail (see repository._next_profile_liked_track)."""
+    listening from that rail (see repository._next_profile_liked_track).
+
+    Dedupes by track: the bot's group-chat reaction collection (see
+    SUT_Music_bot._collect_reactions) records one track_reactions row per
+    Telegram message it saw a reaction on, keyed by message_id -- so if the
+    same track (one track_id, merged uploaded_by) was reposted by more than
+    one person and this user liked more than one of those postings, there'd
+    be several reaction rows for the same (user_id, track_id) pair. Without
+    a DISTINCT track_id here, joining straight to tracks would surface that
+    same liked song more than once."""
     rows = await _fetch_all(
         """
-        SELECT t.* FROM track_reactions r
-        JOIN tracks t ON t.id = r.track_id
-        WHERE r.user_id = $1 AND r.sentiment = 'like'
+        SELECT t.* FROM tracks t
+        WHERE t.id IN (
+            SELECT DISTINCT track_id FROM track_reactions
+            WHERE user_id = $1 AND sentiment = 'like'
+        )
         ORDER BY t.likes_count DESC, t.id ASC
         LIMIT $2 OFFSET $3;
         """,
@@ -1108,7 +1119,11 @@ async def _next_profile_sent_track(owner_id: int, current_track_id: int, exclude
     """That person's shared tracks, most popular first -- same ordering as
     GET /api/users/{id}/tracks."""
     tracks = await Track.search_tracks({"uploaded_by": ("contains", owner_id)}, limit=2000) or []
-    rows = [r for r in (await t.get_track_row() for t in tracks) if r]
+    rows: list[Row] = []
+    for t in tracks:
+        row = await t.get_track_row()
+        if row:
+            rows.append(row)
     rows.sort(key=lambda r: (-(r.get("likes_count") or 0), r["id"]))
     return await _next_in_ordered_tracks(rows, current_track_id, exclude_ids)
 
@@ -1116,12 +1131,16 @@ async def _next_profile_sent_track(owner_id: int, current_track_id: int, exclude
 async def _next_profile_liked_track(owner_id: int, current_track_id: int, exclude_ids: set[int]) -> Optional[Row]:
     """That person's liked tracks, most popular first -- powers the
     profile page's "Liked tracks" rail alongside its existing "Artists
-    liked most" one."""
+    liked most" one. Deduped by track for the same reason as
+    get_user_liked_tracks above -- otherwise a track liked via more than
+    one reposted message would come up twice while walking this list."""
     rows = await _fetch_all(
         """
-        SELECT t.* FROM track_reactions r
-        JOIN tracks t ON t.id = r.track_id
-        WHERE r.user_id = $1 AND r.sentiment = 'like'
+        SELECT t.* FROM tracks t
+        WHERE t.id IN (
+            SELECT DISTINCT track_id FROM track_reactions
+            WHERE user_id = $1 AND sentiment = 'like'
+        )
         ORDER BY t.likes_count DESC, t.id ASC;
         """,
         owner_id,

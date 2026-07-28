@@ -32,7 +32,7 @@ export default function MiniPlayer() {
       >
         {isPlaying ? <Pause size={16} fill="white" /> : <Play size={16} fill="white" className="ml-0.5" />}
       </span>
-      {queue.next && (
+      {track && (
         <span
           onClick={(e) => {
             e.stopPropagation();

@@ -258,8 +258,8 @@ export default function SongPage() {
               {isPlaying ? <Pause size={24} fill="white" /> : <Play size={24} fill="white" className="ml-1" />}
             </button>
             <button
-              onClick={playNext}
-              disabled={!queue.next}
+              onClick={() => playNext()}
+              disabled={!track}
               className="text-paper disabled:opacity-30 tap relative"
               aria-label="Next"
             >
