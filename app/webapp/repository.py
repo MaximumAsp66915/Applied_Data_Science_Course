@@ -1071,6 +1071,22 @@ async def _next_artist_chain_track(
     return engine_row, reseed_artist_id
 
 
+async def _arm_artist_fallback(user_id: int, seed_track_id: int) -> None:
+    """Switches the active program over to the artist cascade, seeded from
+    `seed_track_id`'s own artist -- used when a fixed-order list program
+    (profile sent/liked tracks) runs out. We still return no `next` for
+    THIS call (the caller pauses and waits for the user, per the module
+    docstring above), but this makes sure the NEXT call -- whenever the
+    user presses play again -- picks up the artist logic for the last
+    song they played, instead of re-querying the same exhausted list."""
+    row = await get_track(seed_track_id)
+    artist_id = next(iter((row or {}).get("artists_id") or []), None)
+    state = {"mode": "artist"}
+    if artist_id is not None:
+        state["artist_id"] = artist_id
+    await playback_mode_cache.set(user_id, state)
+
+
 async def _next_in_ordered_tracks(
     ordered_rows: list[Row], current_track_id: int, exclude_ids: set[int]
 ) -> Optional[Row]:
@@ -1150,6 +1166,25 @@ async def _next_top_track(current_track_id: int, exclude_ids: set[int]) -> Optio
     return None
 
 
+def _latest_history_value(jsonb_value):
+    """Same unwrap as serializers._latest -- duplicated locally (rather than
+    imported) since serializers.py imports this module, not the other way
+    around. first_name/last_name/username/profile_photo are stored as JSONB
+    history arrays (either plain scalars or already-unwrapped strings
+    depending on the path the row came from); callers here just want the
+    current value either way, not the raw history list."""
+    if jsonb_value is None:
+        return None
+    if isinstance(jsonb_value, list):
+        if not jsonb_value:
+            return None
+        last = jsonb_value[-1]
+        if isinstance(last, dict):
+            return last.get("value")
+        return last
+    return jsonb_value
+
+
 async def _playback_source_label(mode: str, owner_id: Optional[int]) -> Optional[str]:
     if mode == "artist":
         return "By artists"
@@ -1159,7 +1194,11 @@ async def _playback_source_label(mode: str, owner_id: Optional[int]) -> Optional
         return "Playing suggestions"
     if mode in ("profile_sent", "profile_liked") and owner_id is not None:
         owner = await get_user(owner_id)
-        name = (owner or {}).get("first_name") or (owner or {}).get("username") or "them"
+        name = (
+            _latest_history_value((owner or {}).get("first_name"))
+            or _latest_history_value((owner or {}).get("username"))
+            or "them"
+        )
         return f"{'Sent' if mode == 'profile_sent' else 'Liked'} by {name}"
     return None
 
@@ -1217,13 +1256,22 @@ async def _get_next_for_active_program(
 
     if mode == "profile_sent" and owner_id is not None:
         row = await _next_profile_sent_track(owner_id, current_track_id, exclude_ids)
-        # Exhausted -> pause and wait for the user, rather than handing off
-        # to any fallback -- see this function's module docstring.
-        return row, (await _playback_source_label(mode, owner_id) if row else None)
+        if row:
+            return row, await _playback_source_label(mode, owner_id)
+        # Exhausted -> pause and wait for the user, per this function's
+        # module docstring. But arm the artist cascade off of the
+        # last-played track for whenever they DO resume, rather than
+        # leaving mode="profile_sent" in the cache to just re-query this
+        # same exhausted list forever on every subsequent call.
+        await _arm_artist_fallback(user_id, current_track_id)
+        return None, None
 
     if mode == "profile_liked" and owner_id is not None:
         row = await _next_profile_liked_track(owner_id, current_track_id, exclude_ids)
-        return row, (await _playback_source_label(mode, owner_id) if row else None)
+        if row:
+            return row, await _playback_source_label(mode, owner_id)
+        await _arm_artist_fallback(user_id, current_track_id)
+        return None, None
 
     # Default / "artist": cascade through this artist, then related
     # artists, reseeding via the engine if the whole web runs dry.
