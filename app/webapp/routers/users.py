@@ -98,6 +98,29 @@ async def get_user_tracks(
     return {"items": items}
 
 
+@router.get("/{user_id}/liked-tracks")
+async def get_user_liked_tracks(
+    user_id: int,
+    limit: int = Query(20, le=50),
+    offset: int = 0,
+    tg_user: TelegramUser | None = Depends(optional_telegram_user),
+):
+    """GET /api/users/{user_id}/liked-tracks -- songs this user has liked,
+    most popular first (the track-level counterpart to /relations'
+    top_liked_artists). Also what the player walks through when a session
+    starts from this rail -- see repository._next_profile_liked_track."""
+    viewer_id = await _resolve_viewer_id(tg_user)
+    owner_row = await repo.get_user(user_id)
+    if not owner_row:
+        raise HTTPException(404, "User not found")
+    if not repo.is_profile_visible(owner_row, viewer_id):
+        raise HTTPException(403, "This profile is private")
+
+    rows = await repo.get_user_liked_tracks(user_id, limit, offset)
+    items = [await serialize_track(r, viewer_id=viewer_id) for r in rows]
+    return {"items": items}
+
+
 @router.get("/{user_id}/stats")
 async def get_user_stats(user_id: int, tg_user: TelegramUser | None = Depends(optional_telegram_user)):
     """GET /api/users/{user_id}/stats -- maps to `user_musicbot_state`:

@@ -20,11 +20,13 @@ export default function Profile() {
   const [stats, setStats] = useState(null);
   const [relations, setRelations] = useState(null);
   const [tracks, setTracks] = useState([]);
+  const [likedTracks, setLikedTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [visibilitySaving, setVisibilitySaving] = useState(false);
 
   const isSelf = !userId || (me && !me.isGuest && String(me.user_id) === String(userId));
   const isPrivateView = !isSelf && person?.is_private_view;
+  const targetId = userId || me?.user_id;
 
   useEffect(() => {
     let cancelled = false;
@@ -32,6 +34,7 @@ export default function Profile() {
     setStats(null);
     setRelations(null);
     setTracks([]);
+    setLikedTracks([]);
     (async () => {
       try {
         const targetId = userId || me?.user_id;
@@ -48,15 +51,17 @@ export default function Profile() {
           return;
         }
 
-        const [statsRes, relRes, tracksRes] = await Promise.all([
+        const [statsRes, relRes, tracksRes, likedTracksRes] = await Promise.all([
           api.getUserStats(targetId),
           api.getUserRelations(targetId),
           api.getUserTracks(targetId),
+          api.getUserLikedTracks(targetId),
         ]);
         if (cancelled) return;
         setStats(statsRes.data);
         setRelations(relRes.data);
         setTracks(tracksRes.data.items ?? []);
+        setLikedTracks(likedTracksRes.data.items ?? []);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -165,7 +170,7 @@ export default function Profile() {
             empty={!loading && "Hasn't shared any songs yet."}
           >
             {tracks.map((t) => (
-              <TrackCard key={t.id} track={t} />
+              <TrackCard key={t.id} track={t} context={`profile_sent:${targetId}`} />
             ))}
           </RollableRail>
 
@@ -176,6 +181,16 @@ export default function Profile() {
           >
             {relations?.top_liked_artists?.map((a) => (
               <ArtistRailCard key={a.id} artist={a} />
+            ))}
+          </RollableRail>
+
+          <RollableRail
+            eyebrow="Taste breakdown"
+            title="Liked tracks, most popular first"
+            empty={!loading && "No liked tracks yet."}
+          >
+            {likedTracks.map((t) => (
+              <TrackCard key={t.id} track={t} context={`profile_liked:${targetId}`} />
             ))}
           </RollableRail>
 

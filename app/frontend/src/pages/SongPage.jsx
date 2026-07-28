@@ -160,7 +160,7 @@ export default function SongPage() {
         <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-full bg-surface flex items-center justify-center tap" aria-label="Close">
           <ChevronDown size={18} className="text-muted" />
         </button>
-        <p className="eyebrow">Now playing</p>
+        <p className="eyebrow">{queue.next_source_label || "Now playing"}</p>
         <button
           onClick={handleDownload}
           disabled={downloading}

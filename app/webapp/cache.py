@@ -51,12 +51,31 @@ fanart_cache = AutoExpiringDict(ttl_seconds=6 * 3600, cleanup_interval=600, max_
 # our own reacted-tracks exclude list know anything about a track the user
 # was just shown but hasn't reacted to -- so without this, hitting "try
 # another", or simply closing and reopening the app, returns the exact same
-# pick every time (nothing about the request changes). 30 minutes is enough
-# to ride out a "try another" spam session or a quick relaunch while still
-# naturally letting a track come back into rotation later rather than
-# excluding it forever. max_keys is generous since this is one small list
-# per active user, not per-request data.
-recently_suggested_cache = AutoExpiringDict(ttl_seconds=1800, cleanup_interval=300, max_keys=20000)
+# pick every time (nothing about the request changes). Also doubles as the
+# general "don't repeat a track the *suggestion system* already surfaced
+# this session" set for the player's own next-track logic (see
+# repository._get_next_for_active_program) -- an artist/related-artist
+# cascade or an engine reseed both add their picks here too, on top of the
+# reacted-tracks/recent-history excludes those call sites already have.
+# 24 hours is the product's definition of "session" for this: long enough
+# that nothing already surfaced comes back around within the same sitting
+# (even one that spans a full day), while still naturally letting a track
+# come back into rotation eventually rather than excluding it forever.
+# max_keys is generous since this is one small list per active user, not
+# per-request data.
+recently_suggested_cache = AutoExpiringDict(ttl_seconds=24 * 3600, cleanup_interval=1800, max_keys=20000)
+
+# Per-user "which listening program is currently active" tracker --
+# whichever of artist/related-artist cascade, a profile's shared/liked
+# tracks in order, the latest-tracks feed, top tracks, or the suggestion
+# engine is driving what plays next (see repository._get_next_for_active_program
+# and PlayerContext.jsx/api.getTrackQueue's `context`). Set fresh whenever
+# the user starts listening from a specific origin (an artist page, a
+# profile's track list, etc.) and read back on every subsequent Prev/Next
+# within that same sitting so the *same* program keeps driving without the
+# frontend needing to keep re-stating it. Same 24h session window as
+# recently_suggested_cache, for the same reason.
+playback_mode_cache = AutoExpiringDict(ttl_seconds=24 * 3600, cleanup_interval=1800, max_keys=20000)
 
 # Per-user "artists liked in this session" tracker. Product intent: liking
 # an artist is a fresh, deliberate signal that should immediately reopen

@@ -156,14 +156,23 @@ async def get_track_queue(
     last_outcome: str | None = None,
     tg_user: TelegramUser | None = Depends(optional_telegram_user),
 ):
-    """-> { prev, next }, used by the player's skip buttons.
+    """-> { prev, next, next_is_suggestion, next_source_label }, used by the
+    player's skip buttons.
 
     For a signed-in user this both READS and WRITES: it records the current
     track into that user's default "listening history" playlist (creating
     the playlist on first use), which is what lets `prev` walk back through
-    what they've actually played, and picks `next` as an unheard track by
-    one of the current track's artists (falling back to a random other
-    artist once those run out) -- see repo.record_play_and_get_queue.
+    what they've actually played. Once the user reaches the live edge of
+    that history, what `next` is depends on where they started listening
+    from -- an artist page (or search results) keeps cascading through that
+    artist then its related artists; a profile's shared/liked-tracks rail
+    plays through in order and then pauses; the feed and top-tracks lists
+    walk their own ordering; "Suggest me a song" stays a fresh engine pick
+    every time -- see repo._get_next_for_active_program for the full
+    rundown and repo.record_play_and_get_queue for how `context` carries
+    this from one request to the next. `next_source_label` is what
+    SongPage.jsx shows in place of "Now playing" ("By artists", "Sent by
+    ...", etc.) to make that logic visible to the user.
 
     `last_track_id` / `last_outcome` ("completed" | "skipped") are an
     optional, purely behavioral hint about whatever was playing right
@@ -178,7 +187,7 @@ async def get_track_queue(
     viewer_id = await _viewer_id(tg_user)
     if viewer_id:
         data = await repo.record_play_and_get_queue(
-            track_id, viewer_id, last_track_id=last_track_id, last_outcome=last_outcome
+            track_id, viewer_id, context=context, last_track_id=last_track_id, last_outcome=last_outcome
         )
     else:
         data = await repo.get_global_track_queue(track_id)
@@ -186,6 +195,7 @@ async def get_track_queue(
         "prev": await serialize_track(data["prev"], viewer_id=viewer_id) if data.get("prev") else None,
         "next": await serialize_track(data["next"], viewer_id=viewer_id) if data.get("next") else None,
         "next_is_suggestion": bool(data.get("next_is_suggestion")),
+        "next_source_label": data.get("next_source_label"),
     }
 
 

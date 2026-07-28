@@ -4,12 +4,17 @@ import { usePlayer } from "../context/PlayerContext";
 
 // variant "rail": fixed-width card for horizontal rails
 // variant "row": full-width row for lists (search results, ranks)
-export default function TrackCard({ track, variant = "rail", rank }) {
+// `context`: where this track is being played FROM (see PlayerContext.jsx /
+// api.getTrackQueue) -- "artist", "top", "feed", "profile_sent:<id>",
+// "profile_liked:<id>", etc. Determines what plays next once the user
+// reaches the live edge of their history. Left undefined defaults to the
+// artist-cascade program on the backend.
+export default function TrackCard({ track, variant = "rail", rank, context }) {
   const navigate = useNavigate();
   const { playTrack } = usePlayer();
 
   const open = () => {
-    playTrack(track);
+    playTrack(track, context);
     navigate(`/song/${track.id}`);
   };
 

@@ -100,7 +100,7 @@ export default function SearchSheet({ open, onClose }) {
                 {(scope === "all" || scope === "tracks") && results.tracks?.length > 0 && (
                   <ResultGroup title="Songs">
                     {results.tracks.map((t) => (
-                      <TrackCard key={t.id} track={t} variant="row" />
+                      <TrackCard key={t.id} track={t} variant="row" context="artist" />
                     ))}
                   </ResultGroup>
                 )}

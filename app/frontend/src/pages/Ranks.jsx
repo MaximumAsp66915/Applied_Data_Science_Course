@@ -67,7 +67,7 @@ export default function Ranks() {
         )}
         {scope === "users" &&
           data?.map((u, i) => <UserRow key={u.user_id} person={u} rank={i + 1} metric={u.total_received_likes} metricLabel="likes" />)}
-        {scope === "tracks" && data?.map((t, i) => <TrackCard key={t.id} track={t} variant="row" rank={i + 1} />)}
+        {scope === "tracks" && data?.map((t, i) => <TrackCard key={t.id} track={t} variant="row" rank={i + 1} context="top" />)}
         {scope === "artists" && data?.map((a, i) => <ArtistRow key={a.id} artist={a} rank={i + 1} />)}
       </div>
     </div>

@@ -98,7 +98,7 @@ export default function Home() {
       </section>
 
       <RollableRail eyebrow="Fresh drops" title="Latest songs" onSeeAll={() => navigate("/ranks?scope=tracks")} empty={!loading && "No tracks shared yet."}>
-        {feed?.latest_tracks?.map((t) => <TrackCard key={t.id} track={t} />)}
+        {feed?.latest_tracks?.map((t) => <TrackCard key={t.id} track={t} context="feed" />)}
       </RollableRail>
 
       <RollableRail eyebrow="New in the mix" title="Latest artists" onSeeAll={() => navigate("/ranks?scope=artists")} empty={!loading && "No artists indexed yet."}>

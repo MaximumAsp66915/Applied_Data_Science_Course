@@ -151,7 +151,7 @@ export default function ArtistPage() {
         empty={!loading && "No tracks indexed for this artist yet."}
       >
         {tracks.map((t) => (
-          <TrackCard key={t.id} track={t} />
+          <TrackCard key={t.id} track={t} context="artist" />
         ))}
       </RollableRail>
     </div>

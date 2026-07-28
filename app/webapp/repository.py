@@ -66,6 +66,7 @@ from .db_conn import conn
 from .config import settings
 from .cache import recently_liked_artists_cache
 from .cache import recently_suggested_cache
+from .cache import playback_mode_cache
 
 Row = dict[str, Any]
 
@@ -233,6 +234,25 @@ async def get_user_tracks(user_id: int, limit: int, offset: int) -> list[Row]:
     ) or []
     rows = [await t.get_track_row() for t in tracks[offset: offset + limit]]
     return [r for r in rows if r]
+
+
+async def get_user_liked_tracks(user_id: int, limit: int, offset: int) -> list[Row]:
+    """Tracks this user has liked, most popular (likes) first -- powers the
+    profile page's "Liked tracks" rail (see get_user_relations's
+    top_liked_artists, the artist-level version of the same idea) and is
+    also what the player walks through track-by-track when someone starts
+    listening from that rail (see repository._next_profile_liked_track)."""
+    rows = await _fetch_all(
+        """
+        SELECT t.* FROM track_reactions r
+        JOIN tracks t ON t.id = r.track_id
+        WHERE r.user_id = $1 AND r.sentiment = 'like'
+        ORDER BY t.likes_count DESC, t.id ASC
+        LIMIT $2 OFFSET $3;
+        """,
+        user_id, limit, offset,
+    )
+    return rows or []
 
 
 
@@ -816,7 +836,18 @@ async def _suggest_unheard_track(
     implicit_liked_track_id: Optional[int] = None,
     implicit_disliked_track_id: Optional[int] = None,
 ) -> Optional[Row]:
-    """Next-track suggestion for when the user is at the live edge of their
+    """SUPERSEDED / no longer called from record_play_and_get_queue -- kept
+    only for reference. The artist-cascade + related-artist-metadata logic
+    this used to provide (engine -> same-artist roll -> Last.fm-related ->
+    random) now lives in _next_artist_chain_track, driven through
+    _get_next_for_active_program, which additionally distinguishes *why*
+    the user is listening (an artist page vs. a profile's track list vs.
+    the feed, etc.) rather than always running this one heuristic. Safe to
+    delete once nothing else needs the old behavior as a reference.
+
+    Original docstring, left intact below for that reference value:
+
+    Next-track suggestion for when the user is at the live edge of their
     history (no cached "next" entry to replay -- see record_play_and_get_queue,
     which only calls this once the user has walked all the way forward
     through anything they've already seen). Priority order:
@@ -904,9 +935,311 @@ async def _suggest_unheard_track(
     return await _remember(row)
 
 
+# ---------------------------------------------------------------------------
+# Origin-aware "what plays next" programs.
+#
+# Where the user started listening from changes what "next" even means:
+# an artist page keeps cascading through that artist (then a random related
+# one, per artists.metadata.related_artists) until the whole reachable web
+# runs dry; a profile's shared/liked tracks play through in a fixed order
+# and then pause rather than handing off to anything else; the feed and
+# top-tracks lists just keep walking their own ordering; and "suggest me a
+# song" stays exactly what it always was, a fresh engine pick every time.
+#
+# `context` (see routers/tracks.py / PlayerContext.jsx) tells this which
+# program to run: a specific origin string the first time the user starts
+# listening from somewhere ("artist", "top", "feed", "suggestion",
+# "profile_sent:<owner_id>", "profile_liked:<owner_id>"), or literally
+# "queue" for every subsequent Prev/Next within that same sitting -- at
+# which point the active program is read back from playback_mode_cache
+# instead of being re-derived, so the frontend never has to keep re-stating
+# where a long-running session originally started.
+# ---------------------------------------------------------------------------
+
+ARTIST_CHAIN_MAX_HOPS = 25  # guards against a pathological related-artist cycle in one request
+
+
+def _parse_playback_origin(context: str) -> tuple[str, Optional[int]]:
+    """"profile_sent:42" -> ("profile_sent", 42). Anything without a colon
+    is its own mode name; anything unrecognized (including plain "home",
+    the old default) falls back to "artist" -- the same "keep cascading
+    through this artist and its neighbors" behavior that used to be the
+    unconditional default for every "what's unheard next" pick."""
+    if not context:
+        return "artist", None
+    if ":" in context:
+        mode, _, rest = context.partition(":")
+        try:
+            return mode, int(rest)
+        except ValueError:
+            return mode, None
+    if context in ("suggestion", "top", "feed"):
+        return context, None
+    return "artist", None
+
+
+async def _unheard_artist_tracks(artist_id: int, exclude_ids: set[int]) -> list[Row]:
+    tracks = await Track.search_tracks({"artists_id": ("contains", artist_id)}, limit=500) or []
+    rows: list[Row] = []
+    for t in tracks:
+        if t.track_id in exclude_ids:
+            continue
+        row = await t.get_track_row()
+        if row:
+            rows.append(row)
+    return rows
+
+
+async def _related_artist_ids_for_chain(artist_id: int, visited: set[int]) -> list[int]:
+    """Resolves artists.metadata.related_artists (a list of names, e.g.
+    {"related_artists": ["D12", "Bad Meets Evil", ...]}) to local artist
+    ids, skipping anything already visited earlier in this same chain
+    traversal (cycle guard) -- not a session-wide exclude, since a related
+    artist skipped over earlier for being mid-chain can still validly come
+    up again as its own fresh seed later."""
+    artist_row = await _get_row("artists", {"id": artist_id})
+    names = ((artist_row or {}).get("metadata") or {}).get("related_artists") or []
+    names = [n.strip() for n in names if isinstance(n, str) and n.strip()]
+    if not names:
+        return []
+    wanted = {n.lower() for n in names}
+    all_artists = await _search(schema.ARTISTS, {}, order_by="id", limit=5000)
+    return [
+        a["id"] for a in all_artists
+        if a["id"] not in visited and (a.get("name") or "").strip().lower() in wanted
+    ]
+
+
+async def _next_artist_chain_track(
+    user_id: int,
+    seed_artist_id: Optional[int],
+    exclude_ids: set[int],
+    implicit_liked_track_id: Optional[int] = None,
+    implicit_disliked_track_id: Optional[int] = None,
+) -> tuple[Optional[Row], Optional[int]]:
+    """All of `seed_artist_id`'s unheard-this-session tracks; once those run
+    out, a random one of its related artists (per its metadata); once
+    that artist's own tracks AND its related artists are equally dry,
+    THEIR related artists, and so on. Only once that whole reachable web
+    comes up empty (or the hop guard trips) does this ask the engine, once,
+    for a fresh track to reseed the exact same cascade from -- the recap:
+    artist -> random related -> random related-of-related -> ... -> dry?
+    -> ask the engine -> resume the cascade from whatever it picked.
+
+    Returns (row_or_None, artist_id_to_remember) -- the second value is
+    what the caller should persist as the new "current artist" in
+    playback_mode_cache, whether that's just wherever the cascade ended up
+    or a freshly engine-reseeded artist.
+    """
+    visited: set[int] = set()
+    artist_id = seed_artist_id
+
+    for _ in range(ARTIST_CHAIN_MAX_HOPS):
+        if artist_id is None:
+            break
+        visited.add(artist_id)
+        candidates = await _unheard_artist_tracks(artist_id, exclude_ids)
+        if candidates:
+            random.shuffle(candidates)
+            row = candidates[0]
+            await recently_suggested_cache.set_add_to_list(user_id, row["id"])
+            return row, artist_id
+
+        related_ids = await _related_artist_ids_for_chain(artist_id, visited)
+        if not related_ids:
+            artist_id = None
+            break
+        artist_id = random.choice(related_ids)
+
+    # Barrier: nothing unheard left anywhere in the reachable web (or the
+    # chain ran unreasonably long). Ask the engine once to reseed a brand
+    # new artist -- the next call resumes the exact same cascade from there.
+    engine_row = await _suggest_from_engine(
+        user_id,
+        exclude_track_ids=exclude_ids,
+        implicit_liked_track_id=implicit_liked_track_id,
+        implicit_disliked_track_id=implicit_disliked_track_id,
+    )
+    if not engine_row or engine_row.get("id") in exclude_ids:
+        engine_row = await suggest_track_for_user(user_id, exclude_ids=exclude_ids)
+
+    if not engine_row:
+        return None, None
+
+    await recently_suggested_cache.set_add_to_list(user_id, engine_row["id"])
+    reseed_artist_id = next(iter(engine_row.get("artists_id") or []), None)
+    return engine_row, reseed_artist_id
+
+
+async def _next_in_ordered_tracks(
+    ordered_rows: list[Row], current_track_id: int, exclude_ids: set[int]
+) -> Optional[Row]:
+    """Shared "these tracks in this fixed order, whatever comes right after
+    the current one" walk, used by every list-shaped program below
+    (a profile's shared/liked tracks, the feed, top tracks). Returns None
+    once the list is exhausted -- the caller decides what that means
+    (pause for profile lists, "can't run out" in practice for feed/top)."""
+    ids_in_order = [r["id"] for r in ordered_rows]
+    if current_track_id not in ids_in_order:
+        return None
+    for row in ordered_rows[ids_in_order.index(current_track_id) + 1:]:
+        if row["id"] not in exclude_ids:
+            return row
+    return None
+
+
+async def _next_profile_sent_track(owner_id: int, current_track_id: int, exclude_ids: set[int]) -> Optional[Row]:
+    """That person's shared tracks, most popular first -- same ordering as
+    GET /api/users/{id}/tracks."""
+    tracks = await Track.search_tracks({"uploaded_by": ("contains", owner_id)}, limit=2000) or []
+    rows = [r for r in (await t.get_track_row() for t in tracks) if r]
+    rows.sort(key=lambda r: (-(r.get("likes_count") or 0), r["id"]))
+    return await _next_in_ordered_tracks(rows, current_track_id, exclude_ids)
+
+
+async def _next_profile_liked_track(owner_id: int, current_track_id: int, exclude_ids: set[int]) -> Optional[Row]:
+    """That person's liked tracks, most popular first -- powers the
+    profile page's "Liked tracks" rail alongside its existing "Artists
+    liked most" one."""
+    rows = await _fetch_all(
+        """
+        SELECT t.* FROM track_reactions r
+        JOIN tracks t ON t.id = r.track_id
+        WHERE r.user_id = $1 AND r.sentiment = 'like'
+        ORDER BY t.likes_count DESC, t.id ASC;
+        """,
+        owner_id,
+    )
+    return await _next_in_ordered_tracks(rows, current_track_id, exclude_ids)
+
+
+async def _next_feed_track(current_track_id: int, exclude_ids: set[int]) -> Optional[Row]:
+    """Home's "Latest songs" rail, newest to oldest -- every track in the
+    channel, so running out in practice isn't a real concern."""
+    current = await get_track(current_track_id)
+    if not current or current.get("created_at") is None:
+        return None
+    rows = await _fetch_all(
+        """
+        SELECT * FROM tracks WHERE (created_at, id) < ($1, $2)
+        ORDER BY created_at DESC, id DESC LIMIT 50;
+        """,
+        current["created_at"], current_track_id,
+    )
+    for row in rows:
+        if row["id"] not in exclude_ids:
+            return row
+    return None
+
+
+async def _next_top_track(current_track_id: int, exclude_ids: set[int]) -> Optional[Row]:
+    """Ranks -> Tracks: most liked to least liked."""
+    current = await get_track(current_track_id)
+    if not current:
+        return None
+    rows = await _fetch_all(
+        """
+        SELECT * FROM tracks WHERE (likes_count, id) < ($1, $2)
+        ORDER BY likes_count DESC, id DESC LIMIT 50;
+        """,
+        current.get("likes_count") or 0, current_track_id,
+    )
+    for row in rows:
+        if row["id"] not in exclude_ids:
+            return row
+    return None
+
+
+async def _playback_source_label(mode: str, owner_id: Optional[int]) -> Optional[str]:
+    if mode == "artist":
+        return "By artists"
+    if mode == "top":
+        return "By most liked"
+    if mode == "suggestion":
+        return "Playing suggestions"
+    if mode in ("profile_sent", "profile_liked") and owner_id is not None:
+        owner = await get_user(owner_id)
+        name = (owner or {}).get("first_name") or (owner or {}).get("username") or "them"
+        return f"{'Sent' if mode == 'profile_sent' else 'Liked'} by {name}"
+    return None
+
+
+async def _get_next_for_active_program(
+    user_id: int,
+    context: str,
+    current_track_id: int,
+    listened_ids: set[int],
+    implicit_liked_track_id: Optional[int] = None,
+    implicit_disliked_track_id: Optional[int] = None,
+) -> tuple[Optional[Row], Optional[str]]:
+    """The live-edge dispatcher record_play_and_get_queue calls once the
+    user has walked all the way forward through their own history (see its
+    docstring) -- picks up whichever program is currently active (module
+    docstring above has the full rundown) and returns (next_row, label) --
+    `label` is what the frontend shows in place of "Now playing" (see
+    SongPage.jsx), None meaning no special label applies."""
+    already_suggested_ids = set(await recently_suggested_cache.get(user_id) or [])
+    exclude_ids = listened_ids | already_suggested_ids | {current_track_id}
+
+    if context == "queue":
+        state = await playback_mode_cache.get(user_id) or {}
+        mode = state.get("mode") or "artist"
+        owner_id = state.get("owner_id")
+        artist_id = state.get("artist_id")
+    else:
+        mode, owner_id = _parse_playback_origin(context)
+        artist_id = None
+        if mode == "artist":
+            current_row = await get_track(current_track_id)
+            artist_id = next(iter((current_row or {}).get("artists_id") or []), None)
+        state = {"mode": mode}
+        if owner_id is not None:
+            state["owner_id"] = owner_id
+        if artist_id is not None:
+            state["artist_id"] = artist_id
+        await playback_mode_cache.set(user_id, state)
+
+    if mode == "suggestion":
+        row = await _suggest_from_engine(
+            user_id, exclude_track_ids=exclude_ids,
+            implicit_liked_track_id=implicit_liked_track_id,
+            implicit_disliked_track_id=implicit_disliked_track_id,
+        )
+        if row:
+            await recently_suggested_cache.set_add_to_list(user_id, row["id"])
+        return row, await _playback_source_label(mode, owner_id)
+
+    if mode == "top":
+        return await _next_top_track(current_track_id, exclude_ids), await _playback_source_label(mode, owner_id)
+
+    if mode == "feed":
+        return await _next_feed_track(current_track_id, exclude_ids), await _playback_source_label(mode, owner_id)
+
+    if mode == "profile_sent" and owner_id is not None:
+        row = await _next_profile_sent_track(owner_id, current_track_id, exclude_ids)
+        # Exhausted -> pause and wait for the user, rather than handing off
+        # to any fallback -- see this function's module docstring.
+        return row, (await _playback_source_label(mode, owner_id) if row else None)
+
+    if mode == "profile_liked" and owner_id is not None:
+        row = await _next_profile_liked_track(owner_id, current_track_id, exclude_ids)
+        return row, (await _playback_source_label(mode, owner_id) if row else None)
+
+    # Default / "artist": cascade through this artist, then related
+    # artists, reseeding via the engine if the whole web runs dry.
+    row, new_artist_id = await _next_artist_chain_track(
+        user_id, artist_id, exclude_ids,
+        implicit_liked_track_id=implicit_liked_track_id,
+        implicit_disliked_track_id=implicit_disliked_track_id,
+    )
+    await playback_mode_cache.set(user_id, {"mode": "artist", "artist_id": new_artist_id})
+    return row, (await _playback_source_label("artist", None) if row else None)
+
+
 async def record_play_and_get_queue(
     track_id: int,
     user_id: int,
+    context: str = "home",
     last_track_id: Optional[int] = None,
     last_outcome: Optional[str] = None,
 ) -> dict:
@@ -916,7 +1249,7 @@ async def record_play_and_get_queue(
         cursor in the user's default listening-history playlist
       * next: whatever sits immediately after it, or -- only once the user
         has walked all the way forward with nothing cached ahead -- a
-        brand new suggestion (see _suggest_unheard_track)
+        brand new suggestion (see _get_next_for_active_program)
       * next_is_suggestion: whether `next` is one of those brand new picks
 
     What happens to the playlist itself depends on WHY track_id is now
@@ -959,7 +1292,7 @@ async def record_play_and_get_queue(
     one started -- "completed" if it played to its natural end, "skipped"
     if the user pressed Next/Prev or "try another" before it finished (see
     PlayerContext.jsx). They're only ever used to lightly nudge the
-    external engine's *next* suggestion call (see _suggest_unheard_track),
+    external engine's *next* suggestion call (see _get_next_for_active_program),
     only when this play actually reaches that branch (the user is at the
     live edge with nothing cached ahead), and are never written to the
     database or treated as a real reaction -- that's still exclusively
@@ -1043,25 +1376,44 @@ async def record_play_and_get_queue(
                     listened_ids.add(tid)
 
     next_is_suggestion = False
+    next_source_label = None
     if next_row is None:
         # No cached "next" entry -- the user has walked all the way forward
         # through their own history and is at the live edge, so this is the
-        # only case where a brand new suggestion (engine or heuristic) gets
-        # offered, and the only case where the implicit like/dislike hint
-        # above is actually relevant. Going back and forth through existing
-        # history never hits this branch.
+        # only case where a brand new pick (from whichever program is
+        # active -- see _get_next_for_active_program) gets offered, and the
+        # only case where the implicit like/dislike hint above is actually
+        # relevant. Going back and forth through existing history never
+        # hits this branch.
         implicit_liked_track_id = last_track_id if last_outcome == "completed" else None
         implicit_disliked_track_id = last_track_id if last_outcome == "skipped" else None
-        next_row = await _suggest_unheard_track(
+        next_row, next_source_label = await _get_next_for_active_program(
+            user_id,
+            context,
             track_id,
             listened_ids,
-            user_id=user_id,
             implicit_liked_track_id=implicit_liked_track_id,
             implicit_disliked_track_id=implicit_disliked_track_id,
         )
         next_is_suggestion = next_row is not None
 
-    return {"prev": prev_row, "next": next_row, "next_is_suggestion": next_is_suggestion}
+    if next_source_label is None:
+        # Either this was pure history navigation (no fresh pick made this
+        # call) or the active program's own label helper returned nothing
+        # -- either way, fall back to whatever program is on record for
+        # this user so the label stays put for the whole session, not just
+        # the exact call that made a fresh pick.
+        active_state = await playback_mode_cache.get(user_id) or {}
+        next_source_label = await _playback_source_label(
+            active_state.get("mode"), active_state.get("owner_id")
+        )
+
+    return {
+        "prev": prev_row,
+        "next": next_row,
+        "next_is_suggestion": next_is_suggestion,
+        "next_source_label": next_source_label,
+    }
 
 
 async def search_tracks(q: str, limit: int, offset: int) -> list[Row]:
