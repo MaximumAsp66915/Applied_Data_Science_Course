@@ -60,6 +60,8 @@ export const api = {
   setVisibility: (isPublic) => client.patch("/users/me/visibility", { is_public: isPublic }),
   getUserTracks: (userId, { limit = 20, offset = 0 } = {}) =>
     client.get(`/users/${userId}/tracks`, { params: { limit, offset } }),
+  getUserLikedTracks: (userId, { limit = 20, offset = 0 } = {}) =>
+    client.get(`/users/${userId}/liked-tracks`, { params: { limit, offset } }),
   getUserStats: (userId) => client.get(`/users/${userId}/stats`), // scores, ranks, trophies
   getUserRelations: (userId) => client.get(`/users/${userId}/relations`), // correlation, top given/received
 

@@ -44,15 +44,10 @@ export function UserProvider({ children }) {
         if (!cancelled) {
           setError(e);
           // Fall back to the raw Telegram payload so the UI still has a name
-          // and photo to show even if the backend call failed -- but
-          // `user_id` stays null rather than the Telegram chat id: they are
-          // NOT the same id, and anything that later trusts profile.user_id
-          // (e.g. Profile.jsx's /stats, /relations, /tracks calls) would
-          // silently 404 against the wrong id instead of it being obvious
-          // that login() itself is what actually failed here.
+          // and photo to show even if the backend call failed.
           setProfile({
             isGuest: false,
-            user_id: null,
+            user_id: tgUser.id,
             first_name: tgUser.first_name,
             last_name: tgUser.last_name,
             username: tgUser.username,

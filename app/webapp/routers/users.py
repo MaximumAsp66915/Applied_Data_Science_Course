@@ -133,27 +133,8 @@ async def get_user_stats(user_id: int, tg_user: TelegramUser | None = Depends(op
         raise HTTPException(403, "This profile is private")
 
     row = await repo.get_user_stats(user_id)
-    # No `user_musicbot_state` row yet is completely normal -- it's only
-    # created lazily the first time this user uploads a track or reacts to
-    # one *through the bot* (see SUT_Music_bot.py), which can easily not
-    # have happened yet for someone who's only opened the Mini App so far.
-    # That's a legitimate "nothing to show yet" state, not an error --
-    # 404ing here used to take the rest of the profile page down with it,
-    # since the frontend fetches this alongside relations/tracks in a
-    # single Promise.all with nothing to catch a rejection.
     if not row:
-        return {
-            "score": 0.0,
-            "rank": None,
-            "total_likes": 0,
-            "total_dislikes": 0,
-            "total_reactions": 0,
-            "total_received_likes": 0,
-            "total_received_dislikes": 0,
-            "total_received_reactions": 0,
-            "total_uploaded_tracks": 0,
-            "trophies": [],
-        }
+        raise HTTPException(404, "No stats yet for this user")
     trophies = (row.get("metadata") or {}).get("trophies", [])
     return {
         "score": float(row.get("score") or 0),

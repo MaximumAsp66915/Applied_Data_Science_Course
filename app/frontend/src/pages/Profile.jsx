@@ -23,18 +23,6 @@ export default function Profile() {
   const [likedTracks, setLikedTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [visibilitySaving, setVisibilitySaving] = useState(false);
-  // The user_id actually confirmed by the backend for whoever this page is
-  // about (set from the getMe()/getUser() response below) -- used for every
-  // request after that point. Deliberately NOT the same as the `targetId`
-  // guess below: for one's own profile that guess comes from
-  // UserContext's `me.user_id`, which has a fallback path (see
-  // UserContext.jsx's login() catch block) that can end up holding the raw
-  // Telegram chat id instead of the real internal user_id. Using that
-  // wrong id for /stats, /relations, /tracks, /liked-tracks would 404 all
-  // four identically while name/avatar (fetched via getMe(), which doesn't
-  // depend on this value at all) still render fine -- exactly the
-  // "shows name and photo, everything else is empty" symptom.
-  const [resolvedUserId, setResolvedUserId] = useState(null);
 
   const isSelf = !userId || (me && !me.isGuest && String(me.user_id) === String(userId));
   const isPrivateView = !isSelf && person?.is_private_view;
@@ -47,27 +35,14 @@ export default function Profile() {
     setRelations(null);
     setTracks([]);
     setLikedTracks([]);
-    setResolvedUserId(null);
     (async () => {
       try {
-        if (!me) return; // still resolving the viewer's own session
-        if (isSelf && me.isGuest) return; // guest viewing their own (nonexistent) profile
-        const targetId = userId || me.user_id;
-        if (!isSelf && !targetId) return; // viewing someone else's profile with no id to look up
+        const targetId = userId || me?.user_id;
+        if (!targetId) return; // guest with no id yet
 
         const userRes = await (isSelf ? api.getMe() : api.getUser(targetId));
         if (cancelled) return;
         setPerson(userRes.data);
-        // Prefer the id the backend just confirmed over the UserContext
-        // guess -- see resolvedUserId's declaration above for why.
-        const confirmedId = userRes.data?.user_id ?? targetId;
-        setResolvedUserId(confirmedId);
-        if (String(confirmedId) !== String(targetId)) {
-          console.warn(
-            "[Profile] targetId guess didn't match the backend-confirmed id -- using the confirmed one.",
-            { targetIdGuess: targetId, confirmedId }
-          );
-        }
 
         // A private profile viewed by someone other than its owner: the
         // backend already withheld everything but name/avatar, so don't
@@ -76,29 +51,24 @@ export default function Profile() {
           return;
         }
 
+        // allSettled rather than all: one rail failing (network hiccup, a
+        // route that doesn't exist yet, etc.) should not blank out the
+        // whole page -- name/avatar and whichever calls did succeed should
+        // still render instead of everything staying stuck at null/zero.
         const [statsRes, relRes, tracksRes, likedTracksRes] = await Promise.allSettled([
-          api.getUserStats(confirmedId),
-          api.getUserRelations(confirmedId),
-          api.getUserTracks(confirmedId),
-          api.getUserLikedTracks(confirmedId),
+          api.getUserStats(targetId),
+          api.getUserRelations(targetId),
+          api.getUserTracks(targetId),
+          api.getUserLikedTracks(targetId),
         ]);
         if (cancelled) return;
-        // Each section degrades independently -- one endpoint failing
-        // (network hiccup, a 404/500 on the backend, etc.) shows that
-        // section as empty rather than leaving the whole page stuck on
-        // nothing-but-name-and-avatar, which is what a single shared
-        // Promise.all used to do the moment any one of these rejected.
         if (statsRes.status === "fulfilled") setStats(statsRes.value.data);
-        else console.error("[Profile] /stats failed:", statsRes.reason?.response?.status, statsRes.reason?.response?.data || statsRes.reason);
-
         if (relRes.status === "fulfilled") setRelations(relRes.value.data);
-        else console.error("[Profile] /relations failed:", relRes.reason?.response?.status, relRes.reason?.response?.data || relRes.reason);
-
         if (tracksRes.status === "fulfilled") setTracks(tracksRes.value.data.items ?? []);
-        else console.error("[Profile] /tracks failed:", tracksRes.reason?.response?.status, tracksRes.reason?.response?.data || tracksRes.reason);
-
         if (likedTracksRes.status === "fulfilled") setLikedTracks(likedTracksRes.value.data.items ?? []);
-        else console.error("[Profile] /liked-tracks failed:", likedTracksRes.reason?.response?.status, likedTracksRes.reason?.response?.data || likedTracksRes.reason);
+        for (const r of [statsRes, relRes, tracksRes, likedTracksRes]) {
+          if (r.status === "rejected") console.error("Profile data load failed:", r.reason);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -207,7 +177,7 @@ export default function Profile() {
             empty={!loading && "Hasn't shared any songs yet."}
           >
             {tracks.map((t) => (
-              <TrackCard key={t.id} track={t} context={`profile_sent:${resolvedUserId ?? targetId}`} />
+              <TrackCard key={t.id} track={t} context={`profile_sent:${targetId}`} />
             ))}
           </RollableRail>
 
@@ -227,7 +197,7 @@ export default function Profile() {
             empty={!loading && "No liked tracks yet."}
           >
             {likedTracks.map((t) => (
-              <TrackCard key={t.id} track={t} context={`profile_liked:${resolvedUserId ?? targetId}`} />
+              <TrackCard key={t.id} track={t} context={`profile_liked:${targetId}`} />
             ))}
           </RollableRail>
 
