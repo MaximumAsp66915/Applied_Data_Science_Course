@@ -65,6 +65,7 @@ from .cache import top_lists_cache
 from .db_conn import conn
 from .config import settings
 from .cache import recently_liked_artists_cache
+from .cache import recently_suggested_cache
 
 Row = dict[str, Any]
 
@@ -773,7 +774,10 @@ async def get_recent_history_exclude_ids(
 
 
 async def _suggest_from_engine(
-    user_id: Optional[int], exclude_track_ids: Optional[set[int]] = None
+    user_id: Optional[int],
+    exclude_track_ids: Optional[set[int]] = None,
+    implicit_liked_track_id: Optional[int] = None,
+    implicit_disliked_track_id: Optional[int] = None,
 ) -> Optional[Row]:
     """Ask the external recommendation engine for a pick, same contract as
     GET /api/suggestions/next (routers/suggestions.py): configured via
@@ -782,12 +786,23 @@ async def _suggest_from_engine(
     through to the in-house heuristic below. Passes along whatever
     already-seen tracks the caller has on hand, and (if the user isn't one
     the engine was trained on) their liked artists as a fallback signal --
-    see engine_client.suggest_one."""
+    see engine_client.suggest_one.
+
+    `implicit_liked_track_id` / `implicit_disliked_track_id` are a
+    one-call-only nudge derived from *behavior* rather than an explicit
+    reaction (see record_play_and_get_queue's docstring): a track that
+    played to its natural end vs. one the user skipped past. Forwarded
+    straight through to the engine for this single request and nowhere
+    else -- never persisted to our database or to the engine's own state,
+    and never used when the track already has a real like/dislike, since
+    that's a strictly stronger signal the engine gets some other way."""
     reacted_artist_ids = await get_liked_artist_ids(user_id) if user_id else None
     data = await engine_client.suggest_one(
         user_id=user_id,
         reacted_artist_ids=reacted_artist_ids,
         exclude_track_ids=list(exclude_track_ids) if exclude_track_ids else None,
+        implicit_liked_track_id=implicit_liked_track_id,
+        implicit_disliked_track_id=implicit_disliked_track_id,
     )
     if not data:
         return None
@@ -795,7 +810,11 @@ async def _suggest_from_engine(
 
 
 async def _suggest_unheard_track(
-    current_track_id: int, listened_ids: set[int], user_id: Optional[int] = None
+    current_track_id: int,
+    listened_ids: set[int],
+    user_id: Optional[int] = None,
+    implicit_liked_track_id: Optional[int] = None,
+    implicit_disliked_track_id: Optional[int] = None,
 ) -> Optional[Row]:
     """Next-track suggestion for when the user is at the live edge of their
     history (no cached "next" entry to replay -- see record_play_and_get_queue,
@@ -812,18 +831,44 @@ async def _suggest_unheard_track(
          unheard left, move on to an artist Last.fm reports as related to
          the current one and that we already have indexed locally, then
          finally to a fully random other artist.
+
+    On top of `listened_ids`, every pick this function makes for `user_id`
+    within the current session is remembered in recently_suggested_cache
+    (the same cache routers/suggestions.py's "try another" uses) and
+    excluded from every subsequent call -- so a track the *suggestion
+    engine* already handed the user once this session never comes back
+    around a second time, even after it ages out of the last-100-play
+    history that `listened_ids` covers. This says nothing about the
+    user's own default playlist: they can still walk back into their
+    actual listening history via Prev/Next (see record_play_and_get_queue)
+    and replay anything they've genuinely already played.
     """
-    engine_row = await _suggest_from_engine(user_id, exclude_track_ids=listened_ids)
-    if engine_row and engine_row.get("id") not in listened_ids:
-        return engine_row
+    already_suggested_ids = (
+        set(await recently_suggested_cache.get(user_id) or []) if user_id else set()
+    )
+    exclude_ids = listened_ids | already_suggested_ids
+
+    async def _remember(row: Optional[Row]) -> Optional[Row]:
+        if row and user_id:
+            await recently_suggested_cache.set_add_to_list(user_id, row["id"])
+        return row
+
+    engine_row = await _suggest_from_engine(
+        user_id,
+        exclude_track_ids=exclude_ids,
+        implicit_liked_track_id=implicit_liked_track_id,
+        implicit_disliked_track_id=implicit_disliked_track_id,
+    )
+    if engine_row and engine_row.get("id") not in exclude_ids:
+        return await _remember(engine_row)
 
     current = await get_track(current_track_id)
     artist_ids = list((current or {}).get("artists_id") or [])
 
     if artist_ids and random.random() < SAME_ARTIST_SUGGESTION_CHANCE:
-        row = await _first_unheard_from_artist_ids(artist_ids, current_track_id, listened_ids)
+        row = await _first_unheard_from_artist_ids(artist_ids, current_track_id, exclude_ids)
         if row:
-            return row
+            return await _remember(row)
 
     current_artists = await get_track_artists(artist_ids)
     related_names: set[str] = set()
@@ -841,72 +886,126 @@ async def _suggest_unheard_track(
             if a["id"] not in artist_ids and (a.get("name") or "").strip().lower() in related_names
         ]
         if related_artist_ids:
-            row = await _first_unheard_from_artist_ids(related_artist_ids, current_track_id, listened_ids)
+            row = await _first_unheard_from_artist_ids(related_artist_ids, current_track_id, exclude_ids)
             if row:
-                return row
+                return await _remember(row)
 
     # The 10% roll skips straight here -- give the current artist a shot too
     # in case it was skipped above, before finally going fully random.
     if artist_ids:
-        row = await _first_unheard_from_artist_ids(artist_ids, current_track_id, listened_ids)
+        row = await _first_unheard_from_artist_ids(artist_ids, current_track_id, exclude_ids)
         if row:
-            return row
+            return await _remember(row)
 
     other_artists = await _search(schema.ARTISTS, {}, order_by="id", limit=200)
     random.shuffle(other_artists)
     remaining_ids = [a["id"] for a in other_artists if a["id"] not in artist_ids]
-    return await _first_unheard_from_artist_ids(remaining_ids, current_track_id, listened_ids)
+    row = await _first_unheard_from_artist_ids(remaining_ids, current_track_id, exclude_ids)
+    return await _remember(row)
 
 
-async def record_play_and_get_queue(track_id: int, user_id: int) -> dict:
-    """Adds `track_id` to the user's default listening-history playlist as
-    an append-only trace, then returns:
-      * prev: whatever they listened to immediately before this, per that
-        playlist's position ordering
-      * next: an unheard suggestion (see _suggest_unheard_track)
+async def record_play_and_get_queue(
+    track_id: int,
+    user_id: int,
+    last_track_id: Optional[int] = None,
+    last_outcome: Optional[str] = None,
+) -> dict:
+    """Called every time a track starts playing -- a fresh pick, "next", or
+    "prev" alike -- and returns:
+      * prev: whatever sits immediately before the (possibly just-moved)
+        cursor in the user's default listening-history playlist
+      * next: whatever sits immediately after it, or -- only once the user
+        has walked all the way forward with nothing cached ahead -- a
+        brand new suggestion (see _suggest_unheard_track)
+      * next_is_suggestion: whether `next` is one of those brand new picks
 
-    If `track_id` is already somewhere in the playlist (a replay), that
-    older entry is removed outright -- not reused in place, not swapped
-    for anything -- and every later entry's position is shifted down to
-    close the resulting gap (see _remove_entry_and_compact), before the
-    fresh play is appended at the end like any first-time play. So a
-    replay always reads as "just listened to this now" and moves to the
-    front of the history, rather than silently staying parked at its
-    original spot.
+    What happens to the playlist itself depends on WHY track_id is now
+    playing, and that matters a lot:
+
+      * Pure navigation -- the user pressing Prev/Next over history that's
+        already sitting in the playlist (e.g. having listened A, B, C, D,
+        they walk back to B, then forward again). Nothing gets deleted,
+        moved, or re-appended here; this is just the cursor sliding to a
+        different existing row. Getting this wrong is exactly the bug this
+        replaces: treating every play as "just listened to this now" and
+        bumping it to the end meant walking back to B silently moved B to
+        the tail of the list, so pressing Next from B handed back a brand
+        new suggestion instead of C -- the rest of the history the user
+        hadn't "used up" yet.
+      * A genuinely new play -- a fresh pick from Home/Search, a brand new
+        suggestion, or (rarer) the engine handing back a same-artist
+        repeat that's already buried somewhere in history. This is
+        recorded as an append-only trace at the end of the playlist, same
+        as before: if `track_id` already had an older occurrence it's
+        removed outright first (see _remove_entry_and_compact) so it
+        reads as "just listened to this now" and moves to the front of
+        the history, rather than silently staying parked at its original
+        spot.
+
+    The two are told apart using `default_playlist_cursor_cache[user_id]`,
+    which remembers the position of whatever this function last recorded
+    as "current" for this user: `track_id` counts as navigation if it
+    already sits at that cached position (replaying the current track in
+    place) or immediately next to it (one Prev/Next step away); anything
+    else -- including a same-artist repeat from days-old history -- is a
+    fresh play.
 
     The trace is capped at the most recent DEFAULT_PLAYLIST_MAX_SIZE plays,
-    so the oldest entry falls off once the history grows past the limit.
+    so the oldest entry falls off once the history grows past the limit --
+    only checked on a fresh play, since navigation never grows the list.
+
+    `last_track_id` / `last_outcome` are an ephemeral, request-scoped hint
+    from the frontend about the track that was just playing before this
+    one started -- "completed" if it played to its natural end, "skipped"
+    if the user pressed Next/Prev or "try another" before it finished (see
+    PlayerContext.jsx). They're only ever used to lightly nudge the
+    external engine's *next* suggestion call (see _suggest_unheard_track),
+    only when this play actually reaches that branch (the user is at the
+    live edge with nothing cached ahead), and are never written to the
+    database or treated as a real reaction -- that's still exclusively
+    what the explicit like/dislike buttons do.
     """
     playlist_id = await get_or_create_default_playlist(user_id)
     if not playlist_id:
-        return {"prev": None, "next": None}
+        return {"prev": None, "next": None, "next_is_suggestion": False}
 
     async with PlaylistTracks._lock:
         cached_position = default_playlist_cursor_cache.get(user_id)
         existing_entry = await _get_default_playlist_track_entry(playlist_id, track_id)
-
-        if existing_entry is not None:
-            # A replay: don't reuse the old slot in place. Remove it
-            # outright and compact the gap it leaves, then fall through to
-            # append a fresh entry at the end below -- a replay should
-            # read as "just listened to this now", moving it to the front
-            # of the history the same way a first-time play would.
-            removed_position = await existing_entry.get_parameter("position")
-            if removed_position is not None:
-                await _remove_entry_and_compact(playlist_id, existing_entry, removed_position)
-            else:
-                await existing_entry.delete()
-
-        position = await _next_playlist_position(playlist_id)
-        create_res = await PlaylistTracks.create(
-            playlist_id=playlist_id, track_id=track_id, position=position
+        existing_position = (
+            await existing_entry.get_parameter("position") if existing_entry is not None else None
         )
-        if create_res.success:
-            entry = create_res.data
-        else:
-            entry = await _get_default_playlist_track_entry(playlist_id, track_id)
 
-        current_position = await entry.get_parameter("position") if entry else None
+        is_cursor_move = (
+            existing_entry is not None
+            and cached_position is not None
+            and existing_position in (cached_position - 1, cached_position, cached_position + 1)
+        )
+
+        if is_cursor_move:
+            entry = existing_entry
+            current_position = existing_position
+        else:
+            if existing_entry is not None:
+                # Already in the playlist, but not adjacent to where the
+                # user currently is -- not navigation. Remove the old
+                # occurrence (compacting the gap) and fall through to
+                # appending a fresh entry at the end below, same as any
+                # other new play.
+                if existing_position is not None:
+                    await _remove_entry_and_compact(playlist_id, existing_entry, existing_position)
+                else:
+                    await existing_entry.delete()
+
+            position = await _next_playlist_position(playlist_id)
+            create_res = await PlaylistTracks.create(
+                playlist_id=playlist_id, track_id=track_id, position=position
+            )
+            entry = create_res.data if create_res.success else await _get_default_playlist_track_entry(
+                playlist_id, track_id
+            )
+            current_position = await entry.get_parameter("position") if entry else position
+
         if current_position is not None:
             default_playlist_cursor_cache[user_id] = current_position
         elif cached_position is not None:
@@ -920,18 +1019,8 @@ async def record_play_and_get_queue(track_id: int, user_id: int) -> dict:
                 if prev_track_id is not None:
                     prev_row = await get_track(prev_track_id)
 
-        await _trim_default_playlist(playlist_id)
-
-        listened_entries = await PlaylistTracks.search_playlist_tracks(
-            conditions={"playlist_id": ("=", playlist_id)},
-            limit=DEFAULT_PLAYLIST_MAX_SIZE,
-            order_by="position",
-        ) or []
-        listened_ids: set[int] = set()
-        for e in listened_entries:
-            tid = await e.get_parameter("track_id")
-            if tid is not None:
-                listened_ids.add(tid)
+        if not is_cursor_move:
+            await _trim_default_playlist(playlist_id)
 
         next_row = None
         if current_position is not None:
@@ -941,14 +1030,35 @@ async def record_play_and_get_queue(track_id: int, user_id: int) -> dict:
                 if next_track_id is not None:
                     next_row = await get_track(next_track_id)
 
+        listened_ids: set[int] = set()
+        if next_row is None:
+            listened_entries = await PlaylistTracks.search_playlist_tracks(
+                conditions={"playlist_id": ("=", playlist_id)},
+                limit=DEFAULT_PLAYLIST_MAX_SIZE,
+                order_by="position",
+            ) or []
+            for e in listened_entries:
+                tid = await e.get_parameter("track_id")
+                if tid is not None:
+                    listened_ids.add(tid)
+
     next_is_suggestion = False
     if next_row is None:
         # No cached "next" entry -- the user has walked all the way forward
         # through their own history and is at the live edge, so this is the
         # only case where a brand new suggestion (engine or heuristic) gets
-        # offered. Going back through prev/next within existing history
-        # never hits this branch.
-        next_row = await _suggest_unheard_track(track_id, listened_ids, user_id=user_id)
+        # offered, and the only case where the implicit like/dislike hint
+        # above is actually relevant. Going back and forth through existing
+        # history never hits this branch.
+        implicit_liked_track_id = last_track_id if last_outcome == "completed" else None
+        implicit_disliked_track_id = last_track_id if last_outcome == "skipped" else None
+        next_row = await _suggest_unheard_track(
+            track_id,
+            listened_ids,
+            user_id=user_id,
+            implicit_liked_track_id=implicit_liked_track_id,
+            implicit_disliked_track_id=implicit_disliked_track_id,
+        )
         next_is_suggestion = next_row is not None
 
     return {"prev": prev_row, "next": next_row, "next_is_suggestion": next_is_suggestion}

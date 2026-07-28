@@ -10,6 +10,13 @@ const PlayerContext = createContext(null);
 // might never get played, so this stays small on purpose.
 const PREFETCH_AUDIO_POOL_SIZE = 2;
 
+// Spotify-style Previous-button behavior: within the first few seconds of a
+// track, Prev walks back to the actual previous track; past that point, Prev
+// just restarts the current track from 0 instead of moving anywhere. Without
+// this, a stray "back" tap seconds before a song naturally would have ended
+// throws away most of what was just heard rather than replaying it.
+const BACK_BUTTON_RESTART_THRESHOLD_SECONDS = 5;
+
 function createAudioFor(trackData) {
   const el = new Audio();
   el.preload = "auto";
@@ -41,6 +48,25 @@ export function PlayerProvider({ children }) {
   const navigate = useNavigate();
   const locationRef = useRef(location);
   locationRef.current = location;
+
+  // Synchronous mirrors of `track`/`myReaction`, read inside playTrack right
+  // as a new track takes over -- by then setTrack/setMyReaction have already
+  // been called for the new track, so the state values themselves would be
+  // the *new* track, not the one that just finished. These are the only
+  // reliable way to know what was playing a moment ago.
+  const trackRef = useRef(null);
+  const myReactionRef = useRef(null);
+  useEffect(() => { trackRef.current = track; }, [track]);
+  useEffect(() => { myReactionRef.current = myReaction; }, [myReaction]);
+
+  // Set right before a track transition to say *why* the previous track
+  // stopped: "completed" if it played out naturally, "skipped" if the user
+  // jumped away (Next, or Prev before the restart-vs-back threshold below).
+  // playTrack reads and clears this once, folding it into the implicit
+  // like/dislike hint sent to the suggestion engine (see api.getTrackQueue)
+  // -- purely behavioral, never saved anywhere, and only ever used as a
+  // fallback when the track had no explicit reaction of its own.
+  const pendingOutcomeRef = useRef(null);
 
   // Hidden <audio> elements quietly buffering the next couple of tracks so
   // hitting "skip" feels instant instead of waiting on a fresh network
@@ -85,6 +111,15 @@ export function PlayerProvider({ children }) {
 
   const playTrack = useCallback(async (trackData, context = "home") => {
     const requestId = ++playRequestIdRef.current;
+
+    // Snapshot whatever was playing right up until now, before it gets
+    // overwritten below -- this is the track/outcome the implicit
+    // like/dislike hint (if any) is actually about.
+    const previousTrackId = trackRef.current?.id ?? null;
+    const previousHadExplicitReaction = myReactionRef.current != null;
+    const implicitOutcome = pendingOutcomeRef.current;
+    pendingOutcomeRef.current = null;
+
     setTrack(trackData);
     setMyReaction(trackData.my_reaction ?? null);
 
@@ -133,7 +168,12 @@ export function PlayerProvider({ children }) {
     setQueueLoading(true);
 
     try {
-      const { data } = await api.getTrackQueue(trackData.id, context);
+      const { data } = await api.getTrackQueue(trackData.id, context, {
+        lastTrackId: previousTrackId,
+        // Explicit like/dislike is already a stronger, saved signal -- the
+        // implicit hint only fills the gap for a neutral/no-reaction track.
+        lastOutcome: previousHadExplicitReaction ? null : implicitOutcome,
+      });
       if (playRequestIdRef.current !== requestId) return; // superseded by a newer skip
       setQueue(data);
       // Warm the audio for whatever's up next (and, lightly, prev) in the
@@ -162,11 +202,25 @@ export function PlayerProvider({ children }) {
     setProgress(seconds);
   }, []);
 
-  const playNext = useCallback(() => {
-    if (queue.next) playTrack(queue.next, "queue");
+  // `outcome` says why the *current* track is being left: "completed" when
+  // the audio element's own 'ended' event fires this (see onEnd below),
+  // "skipped" for every other case -- i.e. the user actually pressed Next.
+  const playNext = useCallback((outcome = "skipped") => {
+    if (!queue.next) return;
+    pendingOutcomeRef.current = outcome;
+    playTrack(queue.next, "queue");
   }, [queue, playTrack]);
 
   const playPrev = useCallback(() => {
+    const audio = audioElRef.current;
+    // Spotify-style threshold: past the first few seconds, Prev restarts
+    // the current track instead of actually moving to the previous one.
+    if (audio && audio.currentTime >= BACK_BUTTON_RESTART_THRESHOLD_SECONDS) {
+      audio.currentTime = 0;
+      setProgress(0);
+      audio.play().catch(() => {});
+      return;
+    }
     if (queue.prev) playTrack(queue.prev, "queue");
   }, [queue, playTrack]);
 
@@ -177,7 +231,7 @@ export function PlayerProvider({ children }) {
     const audio = audioEl;
     const onTime = () => setProgress(audio.currentTime);
     const onLoaded = () => setDuration(audio.duration || 0);
-    const onEnd = () => playNext();
+    const onEnd = () => playNext("completed");
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
     audio.addEventListener("timeupdate", onTime);

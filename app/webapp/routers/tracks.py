@@ -152,6 +152,8 @@ async def get_track_details(track_id: int):
 async def get_track_queue(
     track_id: int,
     context: str = "home",
+    last_track_id: int | None = None,
+    last_outcome: str | None = None,
     tg_user: TelegramUser | None = Depends(optional_telegram_user),
 ):
     """-> { prev, next }, used by the player's skip buttons.
@@ -163,12 +165,21 @@ async def get_track_queue(
     one of the current track's artists (falling back to a random other
     artist once those run out) -- see repo.record_play_and_get_queue.
 
+    `last_track_id` / `last_outcome` ("completed" | "skipped") are an
+    optional, purely behavioral hint about whatever was playing right
+    before this track started -- see PlayerContext.jsx and
+    repo.record_play_and_get_queue's docstring for exactly how (and how
+    little) that gets used: an ephemeral nudge to the engine's next call,
+    nothing stored.
+
     Guests (no valid Telegram session) fall back to the old global
     newest/oldest ordering, since there's no per-user history to build.
     """
     viewer_id = await _viewer_id(tg_user)
     if viewer_id:
-        data = await repo.record_play_and_get_queue(track_id, viewer_id)
+        data = await repo.record_play_and_get_queue(
+            track_id, viewer_id, last_track_id=last_track_id, last_outcome=last_outcome
+        )
     else:
         data = await repo.get_global_track_queue(track_id)
     return {

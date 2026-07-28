@@ -31,8 +31,17 @@ export const api = {
 
   // Tracks / player
   getTrack: (trackId) => client.get(`/tracks/${trackId}`),
-  getTrackQueue: (trackId, context = "home") =>
-    client.get(`/tracks/${trackId}/queue`, { params: { context } }), // -> { prev, next }
+  getTrackQueue: (trackId, context = "home", { lastTrackId, lastOutcome } = {}) => {
+    // -> { prev, next, next_is_suggestion }
+    // lastTrackId/lastOutcome ("completed" | "skipped") are an optional,
+    // purely behavioral hint about whatever was playing right before this
+    // -- see PlayerContext.jsx. Omitted entirely (not sent as null/undefined)
+    // when there's nothing to report, e.g. the very first track of a session.
+    const params = { context };
+    if (lastTrackId != null) params.last_track_id = lastTrackId;
+    if (lastOutcome != null) params.last_outcome = lastOutcome;
+    return client.get(`/tracks/${trackId}/queue`, { params });
+  },
   getTrackDetails: (trackId) => client.get(`/tracks/${trackId}/details`), // -> swipe-up sheet data
   streamUrl: (trackId) => `${BASE_URL}/tracks/${trackId}/stream`,
   reactToTrack: (trackId, reaction) =>

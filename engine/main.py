@@ -115,6 +115,8 @@ def suggest(
     reacted_artist_ids: str | None = None,
     reacted_track_ids: str | None = None,
     exclude_track_ids: str | None = None,
+    implicit_liked_track_id: int | None = None,
+    implicit_disliked_track_id: int | None = None,
 ):
     """GET /suggest?user_id=...&reacted_artist_ids=1,2&exclude_track_ids=3,4
     -> {"track_id": int, "reason": str, "source": str}
@@ -124,12 +126,21 @@ def suggest(
     contract) is enough to get a real personalized pick for any user the
     engine was trained on; `reacted_artist_ids` lets a user who joined (or
     started reacting) after the last training snapshot still get a
-    personalized pick instead of falling back to popularity."""
+    personalized pick instead of falling back to popularity.
+
+    `implicit_liked_track_id` / `implicit_disliked_track_id`: a track that
+    (per the caller) just played to its natural end, or got skipped past,
+    with no explicit like/dislike of its own. Used only to nudge the
+    vector for THIS single response (see Recommender.nudge_vector) --
+    never written to any file, never affects any other request."""
     rec = state["rec"]
     exclude = set(_parse_ids(exclude_track_ids))
     vector, source = _build_vector(
         rec, user_id, _parse_ids(reacted_artist_ids), _parse_ids(reacted_track_ids)
     )
+
+    if vector is not None and (implicit_liked_track_id is not None or implicit_disliked_track_id is not None):
+        vector = rec.nudge_vector(vector, implicit_liked_track_id, implicit_disliked_track_id)
 
     picks: list[int] = []
     if vector is not None:

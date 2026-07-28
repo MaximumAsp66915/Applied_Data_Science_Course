@@ -112,6 +112,35 @@ class Recommender:
         ]
         return self.user_vector_from_artists(artist_ids) if artist_ids else None
 
+    # -- ephemeral implicit-feedback nudge -----------------------------------
+    def nudge_vector(
+        self,
+        vector: np.ndarray,
+        liked_track_id: int | None = None,
+        disliked_track_id: int | None = None,
+        alpha: float = 0.35,
+    ) -> np.ndarray:
+        """Blends `vector` a bit toward the liked track's artist embedding
+        and/or a bit away from the disliked one's, for a caller who wants
+        to factor in *behavioral* signal (played to the end vs. skipped)
+        for a single request. Nothing here is written back to
+        self.user_emb, model_params/, or any other state -- the returned
+        array is a fresh one-off, gone as soon as the caller's request
+        finishes, exactly like this being asked for again with no hint at
+        all would be."""
+        out = vector
+        for track_id, sign in ((liked_track_id, 1.0), (disliked_track_id, -1.0)):
+            if track_id is None:
+                continue
+            artist_id = self.track_to_artist.get(int(track_id))
+            if artist_id is None:
+                continue
+            aidx = self._artist_id_to_idx.get(int(artist_id))
+            if aidx is None:
+                continue
+            out = (1 - alpha) * out + sign * alpha * self.artist_emb[aidx]
+        return out
+
     # -- the actual pipeline (manual.txt section 4) --------------------------
     def recommend_from_vector(
         self,

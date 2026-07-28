@@ -52,16 +52,26 @@ async def suggest_one(
     user_id: int | None = None,
     reacted_artist_ids: list[int] | None = None,
     exclude_track_ids: list[int] | None = None,
+    implicit_liked_track_id: int | None = None,
+    implicit_disliked_track_id: int | None = None,
 ) -> dict | None:
     """A single next-track pick -> {"track_id": int, "reason": str,
     "source": str}, or None if the engine isn't configured/reachable/has
-    nothing to offer."""
+    nothing to offer.
+
+    `implicit_liked_track_id` / `implicit_disliked_track_id` are a
+    one-request-only nudge (a track that played to its end vs. one the
+    user skipped past, with no explicit reaction of its own -- see
+    repository.record_play_and_get_queue) -- the engine uses these only to
+    shape THIS pick and never persists them anywhere."""
     data = await _get(
         "/suggest",
         {
             "user_id": user_id,
             "reacted_artist_ids": _ids_param(reacted_artist_ids),
             "exclude_track_ids": _ids_param(exclude_track_ids),
+            "implicit_liked_track_id": implicit_liked_track_id,
+            "implicit_disliked_track_id": implicit_disliked_track_id,
         },
     )
     if not data or not data.get("track_id"):
