@@ -14,6 +14,19 @@ export function initTelegram() {
   } catch (e) {
     // older clients may not support these calls
   }
+  try {
+    // Bot API 7.7+: stops the vertical swipe-down gesture from minimizing
+    // the Mini App. Without this, a scroll-to-top swipe that keeps going
+    // reads as "swipe to close" and drops the user back into Telegram.
+    // Closing is still always available via Telegram's own native close
+    // control at the top of the Mini App chrome -- this only removes the
+    // accidental swipe-down trigger.
+    if (!tg.isVersionAtLeast || tg.isVersionAtLeast("7.7")) {
+      tg.disableVerticalSwipes();
+    }
+  } catch (e) {
+    // older clients may not support this call
+  }
   return tg;
 }
 
