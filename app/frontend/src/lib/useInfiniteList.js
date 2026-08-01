@@ -12,7 +12,6 @@ export function useInfiniteList(fetchPage, resetDeps = []) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const offsetRef = useRef(0);
-  const sentinelRef = useRef(null);
   const fetchPageRef = useRef(fetchPage);
   fetchPageRef.current = fetchPage;
 
@@ -36,7 +35,11 @@ export function useInfiniteList(fetchPage, resetDeps = []) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, resetDeps);
 
-  const loadMore = useCallback(async () => {
+  // Kept current via a ref so the observer below (attached once, via a
+  // ref callback) always calls the latest version without needing to be
+  // re-created/re-attached every time hasMore/loadingMore change.
+  const loadMoreRef = useRef(async () => {});
+  loadMoreRef.current = async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     const rows = await fetchPageRef.current(offsetRef.current, PAGE_SIZE);
@@ -44,22 +47,38 @@ export function useInfiniteList(fetchPage, resetDeps = []) {
     offsetRef.current += rows.length;
     setHasMore(rows.length === PAGE_SIZE);
     setLoadingMore(false);
-  }, [hasMore, loadingMore]);
+  };
 
-  // Fires loadMore whenever the sentinel div at the bottom of the list
-  // scrolls into view -- no manual scroll-position math needed.
-  useEffect(() => {
-    const el = sentinelRef.current;
-    if (!el) return undefined;
+  const observerInstanceRef = useRef(null);
+
+  // A ref *callback* instead of a plain useRef: React invokes this the
+  // instant the sentinel <div> actually mounts (or unmounts), so the
+  // IntersectionObserver is guaranteed to attach to the real node --
+  // unlike a plain useRef + useEffect pair, which only re-runs when its
+  // own dependencies change and can miss the node appearing later (e.g.
+  // once the initial "loading" page finishes and the sentinel first
+  // renders), which was exactly why "load more" stopped after page one.
+  const sentinelRef = useCallback((node) => {
+    if (observerInstanceRef.current) {
+      observerInstanceRef.current.disconnect();
+      observerInstanceRef.current = null;
+    }
+    if (!node) return;
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) loadMore();
+        if (entries[0].isIntersecting) loadMoreRef.current();
       },
       { rootMargin: "600px" }
     );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [loadMore]);
+    observer.observe(node);
+    observerInstanceRef.current = observer;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (observerInstanceRef.current) observerInstanceRef.current.disconnect();
+    };
+  }, []);
 
   return { items, loading, loadingMore, hasMore, sentinelRef };
 }
