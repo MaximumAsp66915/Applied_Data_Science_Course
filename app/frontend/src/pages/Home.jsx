@@ -61,39 +61,35 @@ export default function Home() {
     <div className="pb-28">
       <TopBar onSearchClick={() => setSearchOpen(true)} />
 
-      {/* Hero: the signature soundwave-pulse mark + the two primary actions */}
+      {/* Header menu: the signature soundwave-pulse mark + the two primary
+          actions, sitting as a single row right under the top bar */}
       <section className="px-5 mt-2">
-        <div className="card p-5 relative overflow-hidden">
-          <div className="wavebars text-brand/70 mb-4">
-            {[6, 10, 14, 9, 16, 7, 12, 5, 11].map((h, i) => (
-              <span
-                key={i}
-                style={{ height: `${h}px`, animationDelay: `${i * 0.08}s` }}
-                className="animate-pulseBar"
-              />
-            ))}
+        <div className="flex items-center gap-2">
+          <div className="shrink-0 bg-raised border border-line/60 rounded-xl2 px-3 h-11 flex items-center justify-center">
+            <div className="wavebars text-brand/70">
+              {[6, 10, 14, 9, 16, 7, 12, 5, 11].map((h, i) => (
+                <span
+                  key={i}
+                  style={{ height: `${h}px`, animationDelay: `${i * 0.08}s` }}
+                  className="animate-pulseBar"
+                />
+              ))}
+            </div>
           </div>
-          <p className="eyebrow mb-1">The group's sound, decoded</p>
-          <h2 className="font-display text-2xl leading-tight text-paper max-w-[15ch]">
-            Every track the group has ever loved — and a few it hasn't.
-          </h2>
-
-          <div className="mt-5 flex gap-2.5">
-            <button
-              onClick={() => navigate("/suggest")}
-              className="flex-1 flex items-center justify-center gap-2 bg-brand text-white font-semibold text-sm py-3 rounded-xl2 tap"
-            >
-              <Sparkles size={16} />
-              Suggest me a song
-            </button>
-            <button
-              onClick={() => navigate("/ranks")}
-              className="flex-1 flex items-center justify-center gap-2 bg-raised text-paper font-semibold text-sm py-3 rounded-xl2 border border-line/60 tap"
-            >
-              <Trophy size={16} className="text-pulse" />
-              Ranks
-            </button>
-          </div>
+          <button
+            onClick={() => navigate("/suggest")}
+            className="flex-1 min-w-0 flex items-center justify-center gap-1.5 bg-brand text-white font-semibold text-sm h-11 px-2 rounded-xl2 tap"
+          >
+            <Sparkles size={16} className="shrink-0" />
+            <span className="truncate">Suggest me a song</span>
+          </button>
+          <button
+            onClick={() => navigate("/ranks")}
+            className="flex-1 min-w-0 flex items-center justify-center gap-1.5 bg-raised text-paper font-semibold text-sm h-11 px-2 rounded-xl2 border border-line/60 tap"
+          >
+            <Trophy size={16} className="text-pulse shrink-0" />
+            <span className="truncate">Ranks</span>
+          </button>
         </div>
       </section>
 

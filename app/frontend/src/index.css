@@ -13,7 +13,7 @@ body,
 }
 
 body {
-  @apply bg-ink text-paper font-sans antialiased bg-grain;
+  @apply bg-ink text-paper font-sans antialiased bg-grain bg-no-repeat bg-fixed;
   -webkit-tap-highlight-color: transparent;
 }
 
