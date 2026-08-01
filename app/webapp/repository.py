@@ -1237,7 +1237,8 @@ async def _get_next_for_active_program(
     `label` is what the frontend shows in place of "Now playing" (see
     SongPage.jsx), None meaning no special label applies."""
     already_suggested_ids = set(await recently_suggested_cache.get(user_id) or [])
-    exclude_ids = listened_ids | already_suggested_ids | {current_track_id}
+    reacted_ids = set(await get_reacted_track_ids(user_id) or [])
+    exclude_ids = listened_ids | already_suggested_ids | reacted_ids | {current_track_id}
 
     if context == "queue":
         state = await playback_mode_cache.get(user_id) or {}
