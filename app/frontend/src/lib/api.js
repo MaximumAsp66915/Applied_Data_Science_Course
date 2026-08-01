@@ -68,6 +68,9 @@ export const api = {
   // Ranks / leaderboards
   getRanks: (scope = "users") => client.get("/ranks", { params: { scope } }), // scope: users | tracks | artists
 
+  // Latest (newest 10, tracks or artists)
+  getLatest: (scope = "tracks") => client.get("/latest", { params: { scope } }), // scope: tracks | artists
+
   // Suggestion engine (built by the other team; this is the integration point)
   getSuggestion: () => client.get("/suggestions/next"),
 };

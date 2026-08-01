@@ -5,6 +5,7 @@ import Profile from "./pages/Profile";
 import SongPage from "./pages/SongPage";
 import ArtistPage from "./pages/ArtistPage";
 import Ranks from "./pages/Ranks";
+import Latest from "./pages/Latest";
 import Suggest from "./pages/Suggest";
 import MiniPlayer from "./components/MiniPlayer";
 import { ToastHost } from "./components/Toast";
@@ -66,6 +67,7 @@ export default function App() {
         <Route path="/song/:trackId" element={<SongPage />} />
         <Route path="/artist/:artistId" element={<ArtistPage />} />
         <Route path="/ranks" element={<Ranks />} />
+        <Route path="/latest" element={<Latest />} />
         <Route path="/suggest" element={<Suggest />} />
       </Routes>
       <MiniPlayer />

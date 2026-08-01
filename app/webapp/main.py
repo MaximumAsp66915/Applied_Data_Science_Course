@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
 from . import enrichment_queue
-from .routers import auth, users, tracks, artists, home, search, ranks, suggestions, media
+from .routers import auth, users, tracks, artists, home, search, ranks, latest, suggestions, media
 
 
 @asynccontextmanager
@@ -60,6 +60,7 @@ app.include_router(artists.router)
 app.include_router(home.router)
 app.include_router(search.router)
 app.include_router(ranks.router)
+app.include_router(latest.router)
 app.include_router(suggestions.router)
 app.include_router(media.router)
 

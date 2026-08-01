@@ -9,6 +9,7 @@ import TrackCard from "../components/TrackCard";
 import { ArtistRailCard, ArtistGridTile } from "../components/ArtistCard";
 import SearchSheet from "../components/SearchSheet";
 import EmptyState from "../components/EmptyState";
+import { usePlayer } from "../context/PlayerContext";
 
 // True while anything in the feed is still waiting on a background
 // cover lookup (see webapp/enrichment_queue.py) -- drives whether Home
@@ -21,6 +22,7 @@ function feedHasPending(feed) {
 
 export default function Home() {
   const navigate = useNavigate();
+  const { track: nowPlaying, isPlaying } = usePlayer();
   const [searchOpen, setSearchOpen] = useState(false);
   const [feed, setFeed] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -61,43 +63,60 @@ export default function Home() {
     <div className="pb-28">
       <TopBar onSearchClick={() => setSearchOpen(true)} />
 
-      {/* Header menu: the signature soundwave-pulse mark + the two primary
-          actions, sitting as a single row right under the top bar */}
+      {/* Header menu: the signature soundwave-pulse mark (now a real "now
+          playing" shortcut) + the primary actions, right under the top bar */}
       <section className="px-5 mt-2">
         <div className="flex items-center gap-2">
-          <div className="shrink-0 bg-raised border border-line/60 rounded-xl2 px-3 h-11 flex items-center justify-center">
+          <button
+            onClick={() => nowPlaying && navigate(`/song/${nowPlaying.id}`)}
+            disabled={!nowPlaying}
+            aria-label={nowPlaying ? `Now playing: ${nowPlaying.title || "current track"}` : "Nothing playing right now"}
+            className={`shrink-0 bg-raised border border-line/60 rounded-xl2 px-3 h-11 flex items-center justify-center tap ${
+              nowPlaying ? "" : "opacity-40"
+            }`}
+          >
             <div className="wavebars text-brand/70">
               {[6, 10, 14, 9, 16, 7, 12, 5, 11].map((h, i) => (
                 <span
                   key={i}
                   style={{ height: `${h}px`, animationDelay: `${i * 0.08}s` }}
-                  className="animate-pulseBar"
+                  className={nowPlaying && isPlaying ? "animate-pulseBar" : ""}
                 />
               ))}
             </div>
-          </div>
-          <button
-            onClick={() => navigate("/suggest")}
-            className="flex-1 min-w-0 flex items-center justify-center gap-1.5 bg-brand text-white font-semibold text-sm h-11 px-2 rounded-xl2 tap"
-          >
-            <Sparkles size={16} className="shrink-0" />
-            <span className="truncate">Suggest me a song</span>
           </button>
           <button
+            onClick={() => navigate("/suggest")}
+            className="flex-1 min-w-0 flex items-center justify-center gap-1.5 bg-brand text-white font-semibold text-sm min-h-11 px-3 py-2 rounded-xl2 tap text-center leading-tight"
+          >
+            <Sparkles size={16} className="shrink-0" />
+            <span>Suggest me a song</span>
+          </button>
+        </div>
+
+        <div className="mt-2 flex items-center gap-2">
+          <button
             onClick={() => navigate("/ranks")}
-            className="flex-1 min-w-0 flex items-center justify-center gap-1.5 bg-raised text-paper font-semibold text-sm h-11 px-2 rounded-xl2 border border-line/60 tap"
+            className="flex-1 min-w-0 flex items-center justify-center gap-1.5 bg-raised text-paper font-semibold text-sm min-h-11 px-3 py-2 rounded-xl2 border border-line/60 tap text-center leading-tight"
           >
             <Trophy size={16} className="text-pulse shrink-0" />
-            <span className="truncate">Ranks</span>
+            <span>Ranks</span>
+          </button>
+          <button
+            onClick={() => navigate("/latest")}
+            className="flex-1 min-w-0 flex items-center justify-center gap-1.5 bg-raised text-paper font-semibold text-sm min-h-11 px-3 py-2 rounded-xl2 border border-line/60 tap text-center leading-tight"
+          >
+            <span aria-hidden="true">🆕</span>
+            <span>Latest</span>
           </button>
         </div>
       </section>
 
-      <RollableRail eyebrow="Fresh drops" title="Latest songs" onSeeAll={() => navigate("/ranks?scope=tracks")} empty={!loading && "No tracks shared yet."}>
+      <RollableRail eyebrow="Fresh drops" title="Latest songs" onSeeAll={() => navigate("/latest?scope=tracks")} empty={!loading && "No tracks shared yet."}>
         {feed?.latest_tracks?.map((t) => <TrackCard key={t.id} track={t} context="feed" />)}
       </RollableRail>
 
-      <RollableRail eyebrow="New in the mix" title="Latest artists" onSeeAll={() => navigate("/ranks?scope=artists")} empty={!loading && "No artists indexed yet."}>
+      <RollableRail eyebrow="New in the mix" title="Latest artists" onSeeAll={() => navigate("/latest?scope=artists")} empty={!loading && "No artists indexed yet."}>
         {feed?.latest_artists?.map((a) => <ArtistRailCard key={a.id} artist={a} />)}
       </RollableRail>
 
