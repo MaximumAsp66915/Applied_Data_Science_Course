@@ -1,0 +1,9 @@
+{
+  "embedding_dim": 200,
+  "n_users": 1284,
+  "n_artists": 4996,
+  "positive_score_threshold": 1.0,
+  "n_artists_rec": 5,
+  "tracks_per_artist": 5,
+  "top_k": 10
+}
