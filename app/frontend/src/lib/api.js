@@ -66,10 +66,12 @@ export const api = {
   getUserRelations: (userId) => client.get(`/users/${userId}/relations`), // correlation, top given/received
 
   // Ranks / leaderboards
-  getRanks: (scope = "users") => client.get("/ranks", { params: { scope } }), // scope: users | tracks | artists
+  getRanks: (scope = "users", { limit = 50, offset = 0 } = {}) =>
+    client.get("/ranks", { params: { scope, limit, offset } }), // scope: users | tracks | artists
 
-  // Latest (newest 10, tracks or artists)
-  getLatest: (scope = "tracks") => client.get("/latest", { params: { scope } }), // scope: tracks | artists
+  // Latest (newest first, tracks or artists)
+  getLatest: (scope = "tracks", { limit = 50, offset = 0 } = {}) =>
+    client.get("/latest", { params: { scope, limit, offset } }), // scope: tracks | artists
 
   // Suggestion engine (built by the other team; this is the integration point)
   getSuggestion: () => client.get("/suggestions/next"),

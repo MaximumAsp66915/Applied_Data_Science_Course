@@ -278,8 +278,8 @@ async def search_users(q: str, limit: int, offset: int) -> list[Row]:
     return _rows(result.data) if result.success and result.data else []
 
 
-async def get_top_users(limit: int = 10) -> list[Row]:
-    cache_key = ("top_users", limit)
+async def get_top_users(limit: int = 10, offset: int = 0) -> list[Row]:
+    cache_key = ("top_users", limit, offset)
     cached = await top_lists_cache.get(cache_key)
     if cached is not None:
         return cached
@@ -290,9 +290,9 @@ async def get_top_users(limit: int = 10) -> list[Row]:
         FROM user_musicbot_state s
         JOIN users u ON u.user_id = s.user_id
         ORDER BY s.total_received_likes DESC
-        LIMIT $1;
+        LIMIT $1 OFFSET $2;
     """
-    result = await conn.execute_raw_query(query, [limit])
+    result = await conn.execute_raw_query(query, [limit, offset])
     rows = _rows(result.data) if result.success and result.data else []
     await top_lists_cache.set(cache_key, rows)
     return rows
@@ -579,24 +579,24 @@ async def set_reaction(track_id: int, user_id: int, reaction: Optional[str]) -> 
             )
 
 
-async def get_latest_tracks(limit: int = 15) -> list[Row]:
-    cache_key = ("latest_tracks", limit)
+async def get_latest_tracks(limit: int = 15, offset: int = 0) -> list[Row]:
+    total = offset + limit
+    cache_key = ("latest_tracks", total)
     cached = await top_lists_cache.get(cache_key)
-    if cached is not None:
-        return cached
-    rows = await _search(schema.TRACKS, {}, order_by="created_at", descending=True, limit=limit)
-    await top_lists_cache.set(cache_key, rows)
-    return rows
+    if cached is None:
+        cached = await _search(schema.TRACKS, {}, order_by="created_at", descending=True, limit=total)
+        await top_lists_cache.set(cache_key, cached)
+    return cached[offset:offset + limit]
 
 
-async def get_top_tracks(limit: int = 10) -> list[Row]:
-    cache_key = ("top_tracks", limit)
+async def get_top_tracks(limit: int = 10, offset: int = 0) -> list[Row]:
+    total = offset + limit
+    cache_key = ("top_tracks", total)
     cached = await top_lists_cache.get(cache_key)
-    if cached is not None:
-        return cached
-    rows = await _search(schema.TRACKS, {}, order_by="likes_count", descending=True, limit=limit)
-    await top_lists_cache.set(cache_key, rows)
-    return rows
+    if cached is None:
+        cached = await _search(schema.TRACKS, {}, order_by="likes_count", descending=True, limit=total)
+        await top_lists_cache.set(cache_key, cached)
+    return cached[offset:offset + limit]
 
 
 async def get_global_track_queue(track_id: int) -> dict:
@@ -1995,24 +1995,24 @@ async def get_artist_tracks(artist_id: int, limit: int, offset: int) -> list[Row
     return [r for r in rows if r]
 
 
-async def get_latest_artists(limit: int = 15) -> list[Row]:
-    cache_key = ("latest_artists", limit)
+async def get_latest_artists(limit: int = 15, offset: int = 0) -> list[Row]:
+    total = offset + limit
+    cache_key = ("latest_artists", total)
     cached = await top_lists_cache.get(cache_key)
-    if cached is not None:
-        return cached
-    rows = await _search(schema.ARTISTS, {}, order_by="created_at", descending=True, limit=limit)
-    await top_lists_cache.set(cache_key, rows)
-    return rows
+    if cached is None:
+        cached = await _search(schema.ARTISTS, {}, order_by="created_at", descending=True, limit=total)
+        await top_lists_cache.set(cache_key, cached)
+    return cached[offset:offset + limit]
 
 
-async def get_top_artists(limit: int = 10) -> list[Row]:
-    cache_key = ("top_artists", limit)
+async def get_top_artists(limit: int = 10, offset: int = 0) -> list[Row]:
+    total = offset + limit
+    cache_key = ("top_artists", total)
     cached = await top_lists_cache.get(cache_key)
-    if cached is not None:
-        return cached
-    rows = await _search(schema.ARTISTS, {}, order_by="likes_count", descending=True, limit=limit)
-    await top_lists_cache.set(cache_key, rows)
-    return rows
+    if cached is None:
+        cached = await _search(schema.ARTISTS, {}, order_by="likes_count", descending=True, limit=total)
+        await top_lists_cache.set(cache_key, cached)
+    return cached[offset:offset + limit]
 
 
 async def search_artists(q: str, limit: int, offset: int) -> list[Row]:

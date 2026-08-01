@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Users, Music2, Mic2 } from "lucide-react";
 import { api } from "../lib/api";
+import { useInfiniteList } from "../lib/useInfiniteList";
 import TrackCard from "../components/TrackCard";
 import { ArtistRow } from "../components/ArtistCard";
 import { UserRow } from "../components/UserCard";
@@ -17,23 +18,12 @@ export default function Ranks() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const scope = params.get("scope") || "users";
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      const { data } = await api.getRanks(scope);
-      if (!cancelled) {
-        setData(data.items ?? []);
-        setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [scope]);
+  const fetchPage = useCallback(
+    (offset, limit) => api.getRanks(scope, { limit, offset }).then((res) => res.data.items ?? []),
+    [scope]
+  );
+  const { items: data, loading, loadingMore, hasMore, sentinelRef } = useInfiniteList(fetchPage, [scope]);
 
   return (
     <div className="pb-16">
@@ -59,7 +49,7 @@ export default function Ranks() {
         ))}
       </div>
 
-      <p className="px-5 mt-4 mb-2 eyebrow">Top 10 · most liked</p>
+      <p className="px-5 mt-4 mb-2 eyebrow">Top · most liked</p>
 
       <div className="flex flex-col">
         {!loading && data?.length === 0 && (
@@ -70,6 +60,12 @@ export default function Ranks() {
         {scope === "tracks" && data?.map((t, i) => <TrackCard key={t.id} track={t} variant="row" rank={i + 1} context="top" />)}
         {scope === "artists" && data?.map((a, i) => <ArtistRow key={a.id} artist={a} rank={i + 1} />)}
       </div>
+
+      {!loading && hasMore && (
+        <div ref={sentinelRef} className="py-6 flex justify-center">
+          {loadingMore && <span className="text-xs text-muted">Loading more…</span>}
+        </div>
+      )}
     </div>
   );
 }

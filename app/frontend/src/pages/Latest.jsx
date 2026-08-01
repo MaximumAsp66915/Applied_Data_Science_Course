@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowLeft, Music2, Mic2 } from "lucide-react";
+import { ArrowLeft, Flame, Music2, Mic2 } from "lucide-react";
 import { api } from "../lib/api";
+import { useInfiniteList } from "../lib/useInfiniteList";
 import TrackCard from "../components/TrackCard";
 import { ArtistRow } from "../components/ArtistCard";
 import EmptyState from "../components/EmptyState";
@@ -15,23 +16,12 @@ export default function Latest() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const scope = params.get("scope") === "artists" ? "artists" : "tracks";
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    (async () => {
-      const { data } = await api.getLatest(scope);
-      if (!cancelled) {
-        setData(data.items ?? []);
-        setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [scope]);
+  const fetchPage = useCallback(
+    (offset, limit) => api.getLatest(scope, { limit, offset }).then((res) => res.data.items ?? []),
+    [scope]
+  );
+  const { items: data, loading, loadingMore, hasMore, sentinelRef } = useInfiniteList(fetchPage, [scope]);
 
   return (
     <div className="pb-16">
@@ -39,7 +29,10 @@ export default function Latest() {
         <button onClick={() => navigate(-1)} className="w-9 h-9 rounded-full bg-surface flex items-center justify-center tap" aria-label="Back">
           <ArrowLeft size={16} className="text-muted" />
         </button>
-        <h1 className="font-display text-lg text-paper">🆕 Latest</h1>
+        <h1 className="font-display text-lg text-paper flex items-center gap-1.5">
+          <Flame size={18} className="text-pulse" />
+          Latest
+        </h1>
       </header>
 
       <div className="rail flex gap-2 overflow-x-auto px-5 pb-1 mt-1 snap-x snap-mandatory">
@@ -57,7 +50,7 @@ export default function Latest() {
         ))}
       </div>
 
-      <p className="px-5 mt-4 mb-2 eyebrow">Top 10 · newest first</p>
+      <p className="px-5 mt-4 mb-2 eyebrow">Newest first</p>
 
       <div className="flex flex-col">
         {!loading && data?.length === 0 && (
@@ -71,6 +64,12 @@ export default function Latest() {
           data?.map((t, i) => <TrackCard key={t.id} track={t} variant="row" rank={i + 1} context="feed" />)}
         {scope === "artists" && data?.map((a, i) => <ArtistRow key={a.id} artist={a} rank={i + 1} />)}
       </div>
+
+      {!loading && hasMore && (
+        <div ref={sentinelRef} className="py-6 flex justify-center">
+          {loadingMore && <span className="text-xs text-muted">Loading more…</span>}
+        </div>
+      )}
     </div>
   );
 }

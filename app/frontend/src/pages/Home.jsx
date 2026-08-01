@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, Trophy, Music2, Mic2 } from "lucide-react";
+import { Sparkles, Trophy, Flame, Music2, Mic2 } from "lucide-react";
 import { api } from "../lib/api";
 import { pollPending } from "../lib/pollPending";
 import TopBar from "../components/TopBar";
@@ -106,7 +106,7 @@ export default function Home() {
             onClick={() => navigate("/latest")}
             className="flex-1 min-w-0 flex items-center justify-center gap-1.5 bg-raised text-paper font-semibold text-sm min-h-11 px-3 py-2 rounded-xl2 border border-line/60 tap text-center leading-tight"
           >
-            <span aria-hidden="true">🆕</span>
+            <Flame size={16} className="text-pulse shrink-0" />
             <span>Latest</span>
           </button>
         </div>
