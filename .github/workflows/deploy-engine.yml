@@ -1,16 +1,20 @@
 name: Deploy engine to server
 
-# Only fires when something under engine/ actually changed -- pushes that
-# only touch app/ or repo-root files (this workflow included) don't trigger
-# a deploy. Mirrors deploy-app.yml exactly, just for the other half of the
-# stack -- this is what guarantees an engine-only push never restarts (or
-# even touches) the running app/bot/webapp/frontend, and an app-only push
-# never restarts the engine.
+# Fires when ANY engine_v*/ folder changes -- pushes that only touch app/
+# or repo-root files (this workflow included) don't trigger a deploy.
+#
+# The server only ever runs ONE engine at a time, in a single engine/
+# folder. This workflow figures out, for the commits in this push, which
+# engine_v* folder(s) actually changed, and if more than one did, deploys
+# only the highest version number among them (e.g. a push that touches
+# both engine_v1/ and engine_v2/ deploys engine_v2). A push that only
+# touches engine_v1/ deploys engine_v1, even if a higher engine_v* exists
+# elsewhere in the repo but wasn't touched by this push.
 on:
   push:
     branches: [project]
     paths:
-      - "engine/**"
+      - "engine_v*/**"
 
 jobs:
   deploy:
@@ -18,6 +22,50 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history needed to diff github.event.before -> .after below.
+          fetch-depth: 0
+
+      - name: Pick which engine_v* to deploy
+        id: pick
+        run: |
+          set -euo pipefail
+
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.event.after }}"
+          ZERO="0000000000000000000000000000000000000000"
+
+          if [ "$BEFORE" = "$ZERO" ] || ! git cat-file -e "$BEFORE" 2>/dev/null; then
+            # New branch / first push GitHub has history for -- diff against
+            # the empty tree instead of a nonexistent "before" commit.
+            CHANGED=$(git diff --name-only "$(git hash-object -t tree /dev/null)" "$AFTER")
+          else
+            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER")
+          fi
+
+          # Top-level engine_v<N> directories touched by this push.
+          CHANGED_DIRS=$(echo "$CHANGED" | grep -oE '^engine_v[0-9]+' | sort -u || true)
+
+          if [ -z "$CHANGED_DIRS" ]; then
+            echo "No engine_v* folder changed in this push -- nothing to deploy." >&2
+            exit 1
+          fi
+
+          echo "Changed engine folders in this push:"
+          echo "$CHANGED_DIRS"
+
+          # Highest version number among the ones that changed wins, even if
+          # several engine_v* folders were touched in the same push.
+          BEST_VERSION=$(echo "$CHANGED_DIRS" | sed 's/^engine_v//' | sort -n | tail -1)
+          SELECTED="engine_v${BEST_VERSION}"
+
+          if [ ! -d "$SELECTED" ]; then
+            echo "Selected folder '$SELECTED' does not exist in this checkout." >&2
+            exit 1
+          fi
+
+          echo "Deploying: $SELECTED"
+          echo "engine_dir=$SELECTED" >> "$GITHUB_OUTPUT"
 
       - name: Configure SSH
         env:
@@ -38,11 +86,18 @@ jobs:
       # .env.example) survives every deploy instead of being wiped by
       # --delete -- unlike app/.env, engine/.env holds no secrets that need
       # restoring, so there's nothing to copy back afterward.
-      - name: Sync engine/ to the server
+      #
+      # --delete means whichever engine_v* folder is selected fully
+      # replaces whatever's currently in the server's engine/ -- so
+      # switching from e.g. engine_v1 to engine_v2 cleanly removes any
+      # engine_v1-only files (old model_params layout, etc.) instead of
+      # leaving stale leftovers behind.
+      - name: Sync ${{ steps.pick.outputs.engine_dir }}/ to the server's engine/
         env:
           SSH_USER: ${{ secrets.SSH_USER }}
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_PORT: ${{ secrets.SSH_PORT }}
+          ENGINE_DIR: ${{ steps.pick.outputs.engine_dir }}
         run: |
           rsync -az --delete \
             -e "ssh -i ~/.ssh/deploy_key -p $SSH_PORT -o StrictHostKeyChecking=yes" \
@@ -52,7 +107,7 @@ jobs:
             --exclude ".ipynb_checkpoints" \
             --exclude "engine.log" \
             --exclude ".env" \
-            ./engine/ "$SSH_USER@$SSH_HOST:/srv/bots/telegram/SUTMusic_app/engine/"
+            "./$ENGINE_DIR/" "$SSH_USER@$SSH_HOST:/srv/bots/telegram/SUTMusic_app/engine/"
 
       - name: Restart the engine service
         env:
