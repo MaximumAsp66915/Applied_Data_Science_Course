@@ -1209,6 +1209,8 @@ async def _playback_source_label(mode: str, owner_id: Optional[int]) -> Optional
         return "By artists"
     if mode == "top":
         return "By most liked"
+    if mode == "feed":
+        return "Playing from newest tracks"
     if mode == "suggestion":
         return "Playing suggestions"
     if mode in ("profile_sent", "profile_liked") and owner_id is not None:

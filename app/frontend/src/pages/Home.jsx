@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, Trophy, Flame, Music2, Mic2 } from "lucide-react";
+import { Sparkles, Trophy, Flame, Music2, Mic2, ChevronRight } from "lucide-react";
 import { api } from "../lib/api";
 import { pollPending } from "../lib/pollPending";
 import TopBar from "../components/TopBar";
@@ -126,6 +126,12 @@ export default function Home() {
             <p className="eyebrow mb-1">Crowd favorites</p>
             <h2 className="font-display text-lg text-paper">Top artists</h2>
           </div>
+          <button
+            onClick={() => navigate("/ranks?scope=artists")}
+            className="flex items-center gap-0.5 text-xs font-semibold text-muted hover:text-brand-glow tap"
+          >
+            See all <ChevronRight size={14} />
+          </button>
         </div>
         {feed?.top_artists?.length ? (
           <div className="grid grid-cols-1 gap-2">
