@@ -1,10 +1,12 @@
 import asyncio
 import json
 import re
+import unicodedata
 from pathlib import Path
 from typing import Optional
 
 import aiofiles
+import httpx
 
 
 from telethon import TelegramClient, types
@@ -12,15 +14,17 @@ from telethon.errors import FloodWaitError
 from telethon.tl.types import (
     DocumentAttributeAudio,
     DocumentAttributeFilename,
+    DocumentAttributeCustomEmoji,
     ReactionEmoji,
     ReactionCustomEmoji,
     MessagePeerReaction
 )
-from telethon.tl.functions.messages import GetMessageReactionsListRequest
+from telethon.tl.functions.messages import GetMessageReactionsListRequest, GetCustomEmojiDocumentsRequest
 from telethon.tl.types import InputPeerChannel, InputPeerChat
 
 from config import get_config
 from model.SUTMusic.artist_reaction import ArtistReaction
+from model.SUTMusic.cover import Cover
 from model.SUTMusic.reaction_type import ReactionType
 from model.SUTMusic.track_reaction import TrackReaction
 from model.SUTMusic.user_musicbot_state import UserMusicBotState
@@ -34,6 +38,8 @@ from utils.loggers.flag_logger import FlagLogger
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 INTERNAL_DB_SESSION = f"{PROJECT_ROOT}/db/db_files/collect_data.json"
+
+TELEGRAM_BOT_API = "https://api.telegram.org"
 
 telegram_sutmusic = get_config().TELEGRAM_SUTMusic
 
@@ -124,6 +130,260 @@ class SUT_Music_bot():
         delimiters_pattern = r'(?:[~:+,&\-/|\\\\]+|\bfeat(?:uring)?\b|\bft\b|\bvs\b)'
         possible_artists = re.split(delimiters_pattern, clean_performer_str, flags=re.IGNORECASE)
         return [artist.strip() for artist in possible_artists if artist.strip()]
+
+    # Unicode "format" (Cf) characters are invisible-by-design (soft hyphen,
+    # zero-width space/joiner, word joiner, BOM, bidi marks, ...) and have no
+    # business surviving into an artist name or track title -- they're
+    # copy-paste noise (e.g. "Don Toliver\u00ad", a real artist name with a
+    # trailing soft hyphen someone's keyboard/app inserted), and they make two
+    # names that *look* identical actually compare unequal, breaking the
+    # dedup/lookup logic below. Control characters (Cc) are stripped for the
+    # same reason. Combining marks etc. are left alone -- diacritics are real,
+    # meaningful characters (Beyoncé, Sigur Rós), not noise.
+    @staticmethod
+    def _strip_invisible_chars(text: str) -> str:
+        if not text:
+            return text
+        return "".join(ch for ch in text if unicodedata.category(ch) not in ("Cf", "Cc"))
+
+    # A short blocklist of tokens that regularly survive artist-splitting as
+    # if they were a real artist name, but never are one: leftover session
+    # descriptors, format tags, and uploader-added junk.
+    _ARTIST_NAME_BLOCKLIST = {
+        "live", "remix", "cover", "acoustic", "instrumental", "official",
+        "audio", "video", "unknown", "unknown artist", "various artists",
+        "va", "original mix", "explicit", "clean", "official audio",
+        "official video", "hq", "prod", "prod by", "n/a", "na",
+    }
+
+    # Matches a bare domain-shaped string end-to-end, e.g. "Fa.Com",
+    # "musicbot.ir" -- a website/handle that ended up parsed out as if it
+    # were an artist, not an actual artist name.
+    _DOMAIN_LIKE_PATTERN = re.compile(
+        r'^[a-z0-9-]+\.(com|net|org|io|co|tv|me|cc|info|biz|ru|xyz|ir|app|gg|link|to)$',
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _normalize_artist_name(raw_name: str) -> Optional[str]:
+        """
+        Takes one already-split artist name and either returns a clean,
+        usable version of it, or None if it isn't actually an artist name
+        at all. Returning None means "drop this one silently" -- the caller
+        filters those out.
+        """
+        if not raw_name:
+            return None
+
+        name = SUT_Music_bot._strip_invisible_chars(raw_name)
+
+        # Defensive re-strip of any bracket pairs that leaked through
+        # individually (e.g. a stray "(Live)" that wasn't part of a fully
+        # bracket-wrapped performer string to begin with, so
+        # _get_clean_performer never saw it as a group to remove).
+        name = re.sub(r'(\[.*?\]|\(.*?\)|\{.*?\}|<.*?>)', '', name)
+
+        # Leading/trailing punctuation and whitespace -- catches names that
+        # start with "." (the leftover from an "ft."/"feat." split eating
+        # the word but not the trailing period), stray dashes, colons, etc.
+        name = name.strip(" \t\r\n.,;:!?-_'\"|/\\")
+        name = " ".join(name.split())  # collapse internal whitespace
+
+        if not name:
+            return None
+        if name.lower() in SUT_Music_bot._ARTIST_NAME_BLOCKLIST:
+            return None
+        if SUT_Music_bot._DOMAIN_LIKE_PATTERN.match(name):
+            return None
+        if not re.search(r'\w', name, flags=re.UNICODE):
+            # Nothing left but punctuation/symbols.
+            return None
+
+        return name
+
+    @staticmethod
+    def _clean_artist_names(raw_names: list[str]) -> list[str]:
+        """Normalizes every split artist name, drops the ones that turn out
+        not to be real names (see _normalize_artist_name), and de-duplicates
+        case-insensitively while keeping first-seen order -- so a messy
+        performer string that splits into the same artist twice (e.g. a
+        copy-pasted "Drake, Drake" caption) doesn't create two identical
+        entries in artists_id for one track."""
+        cleaned: list[str] = []
+        seen_lower: set[str] = set()
+        for raw in raw_names:
+            name = SUT_Music_bot._normalize_artist_name(raw)
+            if not name:
+                continue
+            key = name.lower()
+            if key in seen_lower:
+                continue
+            seen_lower.add(key)
+            cleaned.append(name)
+        return cleaned
+
+    # Titles that mean "no real title was ever given" -- either literally
+    # empty, or a placeholder someone's uploader client/tagger writes when
+    # it has nothing better (a bare ".", "...", "-", "N/A", "untitled", ...).
+    _INVALID_TITLE_VALUES = {
+        "", ".", "..", "...", "....", "-", "--", "_", "n/a", "na",
+        "unknown", "untitled", "no title", "none", "null",
+    }
+
+    @staticmethod
+    def _is_valid_track_title(raw_title: str) -> bool:
+        """False means: skip this track entirely, don't save it. Covers a
+        missing title, a placeholder like "." / "..." / "untitled", and a
+        title that, once cleaned, is nothing but punctuation/symbols with no
+        actual letters, digits, or other word characters in it."""
+        if not raw_title:
+            return False
+        cleaned = SUT_Music_bot._strip_invisible_chars(raw_title).strip()
+        if not cleaned:
+            return False
+        if cleaned.lower() in SUT_Music_bot._INVALID_TITLE_VALUES:
+            return False
+        if not re.search(r'\w', cleaned, flags=re.UNICODE):
+            return False
+        return True
+
+    @staticmethod
+    def _normalize_emoji(emoji: str) -> str:
+        """Strips U+FE0F (the emoji "variation selector" -- purely a
+        presentation hint, e.g. whether \u2764 renders as text-style or full
+        emoji-style \u2764\ufe0f) so that reactions which only differ by whether the
+        sender's client included it don't get treated as different emoji.
+        Deliberately does NOT touch U+200D (zero-width joiner) -- that
+        character is structurally required for compound sequences like
+        \u2764\ufe0f\u200d\U0001F525 or \U0001F468\u200d\U0001F4BB, stripping it would break them into unrelated
+        glyphs, not normalize them."""
+        return (emoji or "").replace("\ufe0f", "")
+
+    @staticmethod
+    async def _get_reaction_type_for_emoji(emoji: str) -> Optional["ReactionType"]:
+        """Resolves `emoji` to its reaction_types row, matching against the
+        VS16-normalized form of every existing row (not just an exact string
+        match) so a reaction missing/including that one invisible character
+        reuses the existing row instead of silently creating a visually
+        identical duplicate (this is exactly how the table ended up with
+        both \u2764\ufe0f and \u2764, both \u2764\ufe0f\u200d\U0001F525 and \u2764\u200d\U0001F525, etc. as separate rows).
+        Falls back to a plain exact-match lookup if the table scan fails for
+        any reason, so a transient error here degrades to the old behavior
+        rather than blocking ingestion."""
+        target = SUT_Music_bot._normalize_emoji(emoji)
+        try:
+            all_types = await ReactionType.search_reactions(conditions={}, limit=500)
+        except Exception as e:
+            all_types = None
+            FlagLogger.background_flag(8, f"[reaction_types] Full-table scan failed, falling back to exact match: {e}")
+
+        if all_types:
+            for rx in all_types:
+                existing_emoji = await rx.get_parameter("emoji")
+                if existing_emoji and SUT_Music_bot._normalize_emoji(existing_emoji) == target:
+                    return rx
+            return None
+
+        return await ReactionType.get_by_emoji(emoji)
+
+    @staticmethod
+    def _looks_like_real_emoji(emoji: str) -> bool:
+        """Rejects plain-word placeholders (the "Ghost"/"Dogs"/"CustomEmoji"
+        style of bug) from ever being auto-inserted as a new reaction type.
+        A real emoji is never just ASCII letters/digits."""
+        if not emoji:
+            return False
+        return not re.fullmatch(r'[A-Za-z0-9 _.-]+', emoji)
+
+    @staticmethod
+    async def _resolve_custom_emoji_alt(client: TelegramClient, document_id: int) -> Optional[str]:
+        """Custom/premium emoji reactions carry a `document_id`, not a
+        Unicode character -- the old code stored the literal string
+        "CustomEmoji" as if that WAS the emoji, which meant every custom
+        reaction, no matter which one was actually picked, collapsed into
+        one meaningless catch-all reaction_types row. Telegram documents for
+        custom emoji carry a DocumentAttributeCustomEmoji with an `alt`
+        field: the ordinary Unicode character the custom emoji is a reskin
+        of (a custom fire-emoji sticker's `alt` is still "\U0001F525"). Resolving
+        that lets a custom emoji reaction behave exactly like a normal one.
+        Returns None if it can't be resolved, so the caller can skip the
+        reaction entirely instead of inserting another placeholder row."""
+        try:
+            docs = await client(GetCustomEmojiDocumentsRequest(document_id=[document_id]))
+            for doc in docs or []:
+                for attr in getattr(doc, "attributes", []) or []:
+                    if isinstance(attr, DocumentAttributeCustomEmoji) and getattr(attr, "alt", None):
+                        return attr.alt
+        except Exception as e:
+            FlagLogger.background_flag(8, f"[custom emoji] Failed to resolve document {document_id}: {e}")
+        return None
+
+    @staticmethod
+    async def _resolve_bot_api_media(chat_id: int, message_id: int) -> Optional[dict]:
+        """Recovers a genuine Bot-API `file_id` (and, if the file has one, an
+        embedded cover-art thumbnail) for a message this scraper just
+        archived via the Telethon *userbot* session.
+
+        `msg.document.id` (what used to be stored directly as `file_id`) is
+        an MTProto document id from the userbot session, not a Bot-API
+        file_id -- calling Bot API `getFile` with it 400s downstream (see
+        webapp/media.py's own docstring, which documents this exact bug and
+        ships a reactive per-track self-heal for it). The only way to get a
+        real, Bot-API-usable file_id for an already-archived message is to
+        have the *bot* itself forward that message once; the returned
+        Message object carries a fresh, valid file_id -- and, as a bonus,
+        Telegram nests any embedded audio artwork right there as a `thumb`/
+        `thumbnail` object with its own real file_id, so this same call
+        covers "fetch the cover while scraping" too, at no extra API cost.
+
+        Doing this once here, at ingestion time, means a track has a working
+        file_id (and cover, when the file embeds one) from the moment it's
+        saved, instead of 400ing on its first play and self-healing
+        reactively. webapp/media.py's resolve_message_file_id stays in place
+        as a safety net for anything ingested before this fix, and as a
+        fallback for any deployment that hasn't set BOT_TOKEN here.
+
+        Returns None (never raises) if BOT_TOKEN isn't configured or the
+        call fails for any reason -- callers fall back to the old behavior.
+        """
+        bot_token = telegram_sutmusic.get('bot_token')
+        if not bot_token:
+            return None
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"{TELEGRAM_BOT_API}/bot{bot_token}/forwardMessage",
+                    json={
+                        "chat_id": chat_id,
+                        "from_chat_id": chat_id,
+                        "message_id": message_id,
+                        "disable_notification": True,
+                    },
+                )
+                resp.raise_for_status()
+                payload = resp.json()
+                if not payload.get("ok"):
+                    return None
+                result = payload.get("result") or {}
+        except Exception as e:
+            FlagLogger.background_flag(8, f"[file_id] Bot-API recovery failed for message {message_id}: {e}")
+            return None
+
+        media = result.get("audio") or result.get("document") or result.get("voice")
+        if not media or not media.get("file_id"):
+            return None
+
+        thumb = media.get("thumbnail") or media.get("thumb")
+        return {
+            "file_id": media["file_id"],
+            "unique_file_id": media.get("file_unique_id"),
+            "thumb": {
+                "file_id": thumb["file_id"],
+                "unique_file_id": thumb.get("file_unique_id"),
+                "width": thumb.get("width"),
+                "height": thumb.get("height"),
+            } if thumb and thumb.get("file_id") else None,
+        }
 
     @staticmethod
     async def user_checker(chat_id: int,
@@ -339,8 +599,14 @@ class SUT_Music_bot():
                 return previous_track
 
         performer = SUT_Music_bot._get_clean_performer(artist_str)
-        artist_names = SUT_Music_bot._extract_artists(performer)
+        artist_names = SUT_Music_bot._clean_artist_names(SUT_Music_bot._extract_artists(performer))
         print(f"Extracted Raw String: '{artist_str}' -> Parsed Artists List: {artist_names}")
+
+        track_name = SUT_Music_bot._strip_invisible_chars(track_name).strip()
+        if not SUT_Music_bot._is_valid_track_title(track_name):
+            print(f"Skipped: Message {msg.id} has no usable track title ('{track_name}'). Not saving.")
+            FlagLogger.background_flag(5, f"[INFO] Skipped msg {msg.id}: no usable track title.")
+            return previous_track
 
         await asyncio.sleep(1)
 
@@ -429,6 +695,14 @@ class SUT_Music_bot():
                 artists_id.append(found_artists[0].artist_id)
                 artists_obj.append(found_artists[0])
 
+        # Recover a genuine Bot-API file_id (and, if the file embeds one, a
+        # cover thumbnail) for the copy we just archived -- see
+        # _resolve_bot_api_media's docstring for why msg.document.id itself
+        # is the wrong thing to store here.
+        bot_media = await SUT_Music_bot._resolve_bot_api_media(SUT_Music_bot.storage_chat_id, storage_msg_id)
+        resolved_file_id = (bot_media or {}).get("file_id") or str(msg.document.id)
+        resolved_unique_file_id = (bot_media or {}).get("unique_file_id") or str(msg.document.access_hash)
+
         # --- DB INSTANTIATION: TRACK ---
         track_search_results = await Track.search_tracks(conditions={
             "title": ("ilike", f"{track_name}"),
@@ -437,15 +711,34 @@ class SUT_Music_bot():
 
         if track_search_results is None or len(track_search_results) == 0:
             print(f"[DB-Track] '{track_name}' by '{performer}' not found. Adding track entity...")
+
+            cover_id = None
+            thumb = (bot_media or {}).get("thumb")
+            if thumb and sender_user:
+                # The audio file already carries embedded artwork -- seed
+                # the cover from that instead of waiting on the separate
+                # Last.fm/fanart.tv enrichment pass to find one later (see
+                # webapp/repository.py's enrichment queue, which only ever
+                # enqueues a job for a track that still has no cover_id).
+                cover_res = await Cover.create(uploaded_by=sender_user.user_id, source="telegram_embedded")
+                if cover_res.success:
+                    cover_obj = cover_res.data
+                    await cover_obj.update_parameter("file_id", thumb["file_id"])
+                    await cover_obj.update_parameter("unique_file_id", thumb.get("unique_file_id"))
+                    await cover_obj.update_parameter("width", thumb.get("width"))
+                    await cover_obj.update_parameter("height", thumb.get("height"))
+                    cover_id = cover_obj.cover_id
+
             track_res = await Track.create(
-                file_id=str(msg.document.id),
-                unique_file_id=str(msg.document.access_hash),
+                file_id=resolved_file_id,
+                unique_file_id=resolved_unique_file_id,
                 file_type=file_type,
                 mime_type=mime,
                 extension=extension,
                 title=track_name,
                 artists_id=artists_id,
                 performer=performer,
+                cover_id=cover_id,
                 duration=getattr(attr_audio, 'duration', None) if attr_audio else None,
                 uploaded_by=[int(sender_user.user_id)] if sender_user else None,
                 chat_id=SUT_Music_bot.storage_chat_id,
@@ -560,14 +853,32 @@ class SUT_Music_bot():
             if isinstance(reac.reaction, ReactionEmoji):
                 reaction_emoji = reac.reaction.emoticon
             elif isinstance(reac.reaction, ReactionCustomEmoji):
-                reaction_emoji = "CustomEmoji"
+                # Custom/premium emoji carry a document_id, not a Unicode
+                # character -- resolve it to the ordinary emoji it's a
+                # reskin of (see _resolve_custom_emoji_alt) instead of
+                # storing the literal placeholder string "CustomEmoji",
+                # which used to collapse every custom reaction, whatever it
+                # actually was, into one meaningless catch-all row.
+                reaction_emoji = await SUT_Music_bot._resolve_custom_emoji_alt(client, reac.reaction.document_id)
 
             if not reaction_emoji:
                 continue
 
-            # Map sentiment category against system constants
-            rx = await ReactionType.get_by_emoji(f"{reaction_emoji}")
+            # Map sentiment category against system constants. Lookup is
+            # normalized (see _get_reaction_type_for_emoji) so a reaction
+            # that only differs from an existing row by an invisible
+            # variation-selector character reuses that row instead of
+            # creating a visual duplicate. A brand-new emoji that genuinely
+            # isn't in the table yet still gets auto-added (that's the
+            # intended, working part of this) -- but only if it actually
+            # looks like an emoji, not a plain-word placeholder.
+            rx = await SUT_Music_bot._get_reaction_type_for_emoji(reaction_emoji)
             if not rx:
+                if not SUT_Music_bot._looks_like_real_emoji(reaction_emoji):
+                    FlagLogger.background_flag(
+                        8, f"Ignored reaction that doesn't look like a real emoji: {reaction_emoji!r}"
+                    )
+                    continue
                 FlagLogger.background_flag(8, f"Found new emoji of {reaction_emoji}")
                 rx = (await ReactionType.create(reaction_emoji, "neutral")).data
 
