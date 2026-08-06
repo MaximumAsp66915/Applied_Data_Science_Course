@@ -16,7 +16,6 @@ async def main():
     # await SUT_Music_bot.collect_data()
     # from webapp.routers.search import search
 
-
     try:
         while True:
             await asyncio.sleep(3600)

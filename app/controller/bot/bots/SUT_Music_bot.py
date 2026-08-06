@@ -147,6 +147,38 @@ class SUT_Music_bot():
         possible_artists = re.split(delimiters_pattern, clean_performer_str, flags=re.IGNORECASE)
         return [artist.strip() for artist in possible_artists if artist.strip()]
 
+    # Some uploaders cram a featured-artist credit into the TITLE itself
+    # instead of the separate performer/artist tag -- e.g. the tag says
+    # just "Post Malone" but the title is "I Like You (A Happier Song)
+    # (feat. Doja Cat)". Artist extraction only ever looked at the performer
+    # string, so a credit living only in the title was silently lost --
+    # Doja Cat never made it into artists_id at all, even though it's right
+    # there in the title.
+    _FEATURE_IN_TITLE_PATTERN = re.compile(
+        r'[\(\[]\s*(?:feat(?:uring)?|ft)\.?\s+([^)\]]+)[\)\]]',
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _extract_featured_artists_from_title(title: str) -> tuple[str, list[str]]:
+        """Pulls any "(feat. X)" / "(ft. X)" segment out of the title,
+        splits X the same way _extract_artists splits a performer string (X
+        can itself be "A, B & C"), and returns (title_with_segment_removed,
+        names_found). Title comes back clean either way -- matches how the
+        featured artist ends up properly represented in artists_id instead
+        of just sitting as unstructured text in the title."""
+        if not title:
+            return title, []
+        names: list[str] = []
+
+        def _collect(m: re.Match) -> str:
+            names.extend(SUT_Music_bot._extract_artists(m.group(1)))
+            return ""
+
+        cleaned_title = SUT_Music_bot._FEATURE_IN_TITLE_PATTERN.sub(_collect, title)
+        cleaned_title = " ".join(cleaned_title.split()).strip()
+        return (cleaned_title or title), names
+
     # Unicode "format" (Cf) characters are invisible-by-design (soft hyphen,
     # zero-width space/joiner, word joiner, BOM, bidi marks, ...) and have no
     # business surviving into an artist name or track title -- they're
@@ -311,6 +343,16 @@ class SUT_Music_bot():
         as a safety net for anything ingested before this fix, and as a
         fallback for any deployment that hasn't set BOT_TOKEN here.
 
+        This does mean two archived copies get created per track along the
+        way: the userbot's own archive-to-storage forward (the permanent
+        one -- track.message_id points at this), plus this method's
+        self-forward, purely as a vehicle for the bot to get a fresh
+        Message object back. The second one serves no purpose once its
+        file_id/thumbnail are read out of the response (a file_id stays
+        valid independently of the message that returned it), so it's
+        deleted again right after -- the storage chat doesn't end up with
+        two permanent copies of every track, only the original.
+
         Returns None (never raises) if BOT_TOKEN isn't configured or the
         call fails for any reason -- callers fall back to the old behavior.
         """
@@ -333,6 +375,24 @@ class SUT_Music_bot():
                 if not payload.get("ok"):
                     return None
                 result = payload.get("result") or {}
+
+                forwarded_message_id = result.get("message_id")
+                if forwarded_message_id is not None:
+                    try:
+                        del_resp = await client.post(
+                            f"{TELEGRAM_BOT_API}/bot{bot_token}/deleteMessage",
+                            json={"chat_id": chat_id, "message_id": forwarded_message_id},
+                        )
+                        if not del_resp.json().get("ok"):
+                            FlagLogger.background_flag(
+                                8, f"[file_id] Couldn't delete scratch forward {forwarded_message_id} "
+                                   f"in chat {chat_id} (non-fatal, just leaves a duplicate behind)"
+                            )
+                    except Exception as e:
+                        # Best-effort cleanup only -- the file_id/thumb we
+                        # already read out of `result` above are unaffected
+                        # either way, so this never blocks ingestion.
+                        FlagLogger.background_flag(8, f"[file_id] Scratch-forward cleanup failed: {e}")
         except Exception as e:
             FlagLogger.background_flag(8, f"[file_id] Bot-API recovery failed for message {message_id}: {e}")
             return None
@@ -618,15 +678,18 @@ class SUT_Music_bot():
                 print(f"Skipped: Message {msg.id} document properties do not match structural audio criteria.")
                 return previous_track
 
-        performer = SUT_Music_bot._get_clean_performer(artist_str)
-        artist_names = SUT_Music_bot._clean_artist_names(SUT_Music_bot._extract_artists(performer))
-        print(f"Extracted Raw String: '{artist_str}' -> Parsed Artists List: {artist_names}")
-
         track_name = SUT_Music_bot._strip_invisible_chars(track_name).strip()
+        track_name, featured_from_title = SUT_Music_bot._extract_featured_artists_from_title(track_name)
         if not SUT_Music_bot._is_valid_track_title(track_name):
             print(f"Skipped: Message {msg.id} has no usable track title ('{track_name}'). Not saving.")
             FlagLogger.background_flag(5, f"[INFO] Skipped msg {msg.id}: no usable track title.")
             return previous_track
+
+        performer = SUT_Music_bot._get_clean_performer(artist_str)
+        artist_names = SUT_Music_bot._clean_artist_names(
+            SUT_Music_bot._extract_artists(performer) + featured_from_title
+        )
+        print(f"Extracted Raw String: '{artist_str}' -> Parsed Artists List: {artist_names}")
 
         await asyncio.sleep(1)
 
@@ -735,13 +798,29 @@ class SUT_Music_bot():
 
             cover_id = None
             thumb = (bot_media or {}).get("thumb")
-            if thumb and sender_user:
+            if thumb:
                 # The audio file already carries embedded artwork -- seed
                 # the cover from that instead of waiting on the separate
                 # Last.fm/fanart.tv enrichment pass to find one later (see
                 # webapp/repository.py's enrichment queue, which only ever
                 # enqueues a job for a track that still has no cover_id).
-                cover_res = await Cover.create(uploaded_by=sender_user.user_id, source="telegram_embedded")
+                #
+                # uploaded_by=None is fine and already the established
+                # convention here (see webapp/repository.py's own
+                # Cover.create(uploaded_by=None, ...) for fanart.tv/Last.fm
+                # covers) -- covers aren't "uploaded" by anyone in the
+                # normal sense, they're sourced from an API/the file itself.
+                # This used to require sender_user to be set before trying
+                # at all, which silently skipped every message posted by a
+                # channel rather than a real user account (sender_user is
+                # None for those -- see the "Posted by Unknown entity
+                # types/Channels" log lines) -- i.e. most of this dataset,
+                # which is exactly why zero Telegram-sourced covers were
+                # ever landing despite the file_id fix above working fine.
+                cover_res = await Cover.create(
+                    uploaded_by=sender_user.user_id if sender_user else None,
+                    source="telegram_embedded",
+                )
                 if cover_res.success:
                     cover_obj = cover_res.data
                     await cover_obj.update_parameter("file_id", thumb["file_id"])
@@ -749,6 +828,11 @@ class SUT_Music_bot():
                     await cover_obj.update_parameter("width", thumb.get("width"))
                     await cover_obj.update_parameter("height", thumb.get("height"))
                     cover_id = cover_obj.cover_id
+                    print(f"[🖼️  telegram cover] '{track_name}' -> embedded thumbnail found, cover_id={cover_id}")
+                else:
+                    FlagLogger.background_flag(8, f"[telegram cover] Cover.create failed for '{track_name}'")
+            else:
+                print(f"[🖼️  telegram cover] '{track_name}' -> no embedded thumbnail on this file")
 
             track_res = await Track.create(
                 file_id=resolved_file_id,
