@@ -35,6 +35,22 @@ from model.SUTMusic.track import Track
 from model.SUTMusic.artist import Artist
 from utils.loggers.error_logger import ErrorLogger
 from utils.loggers.flag_logger import FlagLogger
+from webapp.enrichment_queue import EnrichmentQueue, PRIORITY_CLIENT
+from webapp import repository as webapp_repository
+
+# The scraper runs as its own OS process (see deploy/start.sh -- `python
+# main.py` and `uvicorn webapp.main:app` are separate processes, not one),
+# so it can't reach into the webapp's in-memory track_queue/artist_queue
+# (webapp/enrichment_queue.py) -- those only exist, and only have running
+# workers, inside the webapp process. Rather than duplicate the queueing
+# logic, this reuses the exact same EnrichmentQueue class (and the exact
+# same underlying Last.fm/fanart.tv fetch functions from webapp/repository.py
+# -- same DB, same Track/Artist models, so it's fully safe to call directly)
+# with its own small pool scoped to this process. Same "lazy background
+# fetch, never block the caller" behavior new tracks/artists get from a real
+# request, now also applied the moment the scraper itself creates them.
+_scraper_track_enrichment_queue = EnrichmentQueue("scraper-track", num_workers=2)
+_scraper_artist_enrichment_queue = EnrichmentQueue("scraper-artist", num_workers=2)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 INTERNAL_DB_SESSION = f"{PROJECT_ROOT}/db/db_files/collect_data.json"
@@ -248,54 +264,6 @@ class SUT_Music_bot():
         return True
 
     @staticmethod
-    def _normalize_emoji(emoji: str) -> str:
-        """Strips U+FE0F (the emoji "variation selector" -- purely a
-        presentation hint, e.g. whether \u2764 renders as text-style or full
-        emoji-style \u2764\ufe0f) so that reactions which only differ by whether the
-        sender's client included it don't get treated as different emoji.
-        Deliberately does NOT touch U+200D (zero-width joiner) -- that
-        character is structurally required for compound sequences like
-        \u2764\ufe0f\u200d\U0001F525 or \U0001F468\u200d\U0001F4BB, stripping it would break them into unrelated
-        glyphs, not normalize them."""
-        return (emoji or "").replace("\ufe0f", "")
-
-    @staticmethod
-    async def _get_reaction_type_for_emoji(emoji: str) -> Optional["ReactionType"]:
-        """Resolves `emoji` to its reaction_types row, matching against the
-        VS16-normalized form of every existing row (not just an exact string
-        match) so a reaction missing/including that one invisible character
-        reuses the existing row instead of silently creating a visually
-        identical duplicate (this is exactly how the table ended up with
-        both \u2764\ufe0f and \u2764, both \u2764\ufe0f\u200d\U0001F525 and \u2764\u200d\U0001F525, etc. as separate rows).
-        Falls back to a plain exact-match lookup if the table scan fails for
-        any reason, so a transient error here degrades to the old behavior
-        rather than blocking ingestion."""
-        target = SUT_Music_bot._normalize_emoji(emoji)
-        try:
-            all_types = await ReactionType.search_reactions(conditions={}, limit=500)
-        except Exception as e:
-            all_types = None
-            FlagLogger.background_flag(8, f"[reaction_types] Full-table scan failed, falling back to exact match: {e}")
-
-        if all_types:
-            for rx in all_types:
-                existing_emoji = await rx.get_parameter("emoji")
-                if existing_emoji and SUT_Music_bot._normalize_emoji(existing_emoji) == target:
-                    return rx
-            return None
-
-        return await ReactionType.get_by_emoji(emoji)
-
-    @staticmethod
-    def _looks_like_real_emoji(emoji: str) -> bool:
-        """Rejects plain-word placeholders (the "Ghost"/"Dogs"/"CustomEmoji"
-        style of bug) from ever being auto-inserted as a new reaction type.
-        A real emoji is never just ASCII letters/digits."""
-        if not emoji:
-            return False
-        return not re.fullmatch(r'[A-Za-z0-9 _.-]+', emoji)
-
-    @staticmethod
     async def _resolve_custom_emoji_alt(client: TelegramClient, document_id: int) -> Optional[str]:
         """Custom/premium emoji reactions carry a `document_id`, not a
         Unicode character -- the old code stored the literal string
@@ -384,6 +352,58 @@ class SUT_Music_bot():
                 "height": thumb.get("height"),
             } if thumb and thumb.get("file_id") else None,
         }
+
+    @staticmethod
+    def _ensure_enrichment_workers_started() -> None:
+        """Starts this process's own enrichment worker pools on first use.
+        Both EnrichmentQueue.start_workers() calls are themselves idempotent
+        (a no-op if already running), so it's safe to call this on every
+        message -- it only actually spins anything up once."""
+        _scraper_track_enrichment_queue.start_workers()
+        _scraper_artist_enrichment_queue.start_workers()
+
+    @staticmethod
+    def _enqueue_track_enrichment(track_id: int, title: str, performer: str, cover_id: Optional[int]) -> None:
+        """Lazy background Last.fm lookup for a track this scraper just
+        created -- same job webapp/repository.enqueue_track_enrichment
+        would schedule for it on a real request, just triggered at
+        ingestion time instead of waiting for someone to ask for it first.
+        Always fetches track details (summary) regardless of `cover_id`;
+        only fetches a cover via Last.fm if `cover_id` is still None (i.e.
+        the file had no embedded artwork -- see _resolve_bot_api_media)."""
+        SUT_Music_bot._ensure_enrichment_workers_started()
+        row: webapp_repository.Row = {
+            "id": track_id, "title": title, "performer": performer,
+            "cover_id": cover_id, "metadata": {},
+        }
+        if not webapp_repository.track_enrichment_pending(row):
+            return
+        _scraper_track_enrichment_queue.enqueue(
+            f"track:{track_id}",
+            lambda: webapp_repository._fetch_and_cache_track_lastfm(row),
+            priority=PRIORITY_CLIENT,
+        )
+
+    @staticmethod
+    def _enqueue_artist_enrichment(artist_id: int, name: str) -> None:
+        """Lazy background Last.fm + MusicBrainz/fanart.tv lookup for an
+        artist this scraper just created -- see _enqueue_track_enrichment's
+        docstring, same idea. Only ever called for a genuinely new artist
+        row (see the artist-creation loop below); an artist that already
+        existed was already enqueued once, back when it was first created."""
+        SUT_Music_bot._ensure_enrichment_workers_started()
+        row: webapp_repository.Row = {
+            "id": artist_id, "name": name, "description": None,
+            "cover_id": None, "metadata": {},
+        }
+        description_pending, cover_pending = webapp_repository.artist_enrichment_pending(row)
+        if not (description_pending or cover_pending):
+            return
+        _scraper_artist_enrichment_queue.enqueue(
+            f"artist:{artist_id}",
+            lambda: webapp_repository.enrich_artist_with_lastfm(artist_id, row),
+            priority=PRIORITY_CLIENT,
+        )
 
     @staticmethod
     async def user_checker(chat_id: int,
@@ -690,6 +710,7 @@ class SUT_Music_bot():
                 if result_a.success:
                     artists_id.append(result_a.data.artist_id)
                     artists_obj.append(result_a.data)
+                    SUT_Music_bot._enqueue_artist_enrichment(result_a.data.artist_id, single_artist_name)
             else:
                 print(f"[DB-Artist] Match discovered: '{single_artist_name}' (ID: {found_artists[0].artist_id}) already in database.")
                 artists_id.append(found_artists[0].artist_id)
@@ -747,6 +768,9 @@ class SUT_Music_bot():
             if track_res.success:
                 final_track_instance = track_res.data
                 print(f"[SUCCESS] New track committed to DB: ID {final_track_instance.track_id}")
+                SUT_Music_bot._enqueue_track_enrichment(
+                    final_track_instance.track_id, track_name, performer, cover_id
+                )
             else:
                 ErrorLogger.background_log_error(7, f"Failed committing track record structural payload for track: {track_name}")
                 return previous_track
@@ -854,31 +878,23 @@ class SUT_Music_bot():
                 reaction_emoji = reac.reaction.emoticon
             elif isinstance(reac.reaction, ReactionCustomEmoji):
                 # Custom/premium emoji carry a document_id, not a Unicode
-                # character -- resolve it to the ordinary emoji it's a
-                # reskin of (see _resolve_custom_emoji_alt) instead of
-                # storing the literal placeholder string "CustomEmoji",
-                # which used to collapse every custom reaction, whatever it
-                # actually was, into one meaningless catch-all row.
-                reaction_emoji = await SUT_Music_bot._resolve_custom_emoji_alt(client, reac.reaction.document_id)
+                # character -- try to resolve it to the ordinary emoji it's
+                # a reskin of (see _resolve_custom_emoji_alt). If that can't
+                # be resolved, fall back to the "CustomEmoji" catch-all row
+                # that's now a deliberate, kept entry in reaction_types
+                # rather than dropping the reaction entirely.
+                reaction_emoji = await SUT_Music_bot._resolve_custom_emoji_alt(client, reac.reaction.document_id) \
+                    or "CustomEmoji"
 
             if not reaction_emoji:
                 continue
 
-            # Map sentiment category against system constants. Lookup is
-            # normalized (see _get_reaction_type_for_emoji) so a reaction
-            # that only differs from an existing row by an invisible
-            # variation-selector character reuses that row instead of
-            # creating a visual duplicate. A brand-new emoji that genuinely
-            # isn't in the table yet still gets auto-added (that's the
-            # intended, working part of this) -- but only if it actually
-            # looks like an emoji, not a plain-word placeholder.
-            rx = await SUT_Music_bot._get_reaction_type_for_emoji(reaction_emoji)
+            # reaction_types is now a hand-curated, already-unique table
+            # (every row synced against Telegram's own reaction set), so
+            # this is a direct save: exact-match lookup, and only create a
+            # new row for something genuinely not in the table yet.
+            rx = await ReactionType.get_by_emoji(reaction_emoji)
             if not rx:
-                if not SUT_Music_bot._looks_like_real_emoji(reaction_emoji):
-                    FlagLogger.background_flag(
-                        8, f"Ignored reaction that doesn't look like a real emoji: {reaction_emoji!r}"
-                    )
-                    continue
                 FlagLogger.background_flag(8, f"Found new emoji of {reaction_emoji}")
                 rx = (await ReactionType.create(reaction_emoji, "neutral")).data
 
