@@ -40,6 +40,28 @@ WELCOME_TEXT = (
 MAX_RESULTS_PER_KIND = 6
 
 
+async def _render_menu_text(callback: CallbackQuery, text: str, kb, **kwargs) -> None:
+    """Show `text` + `kb` in place of whatever triggered this callback.
+
+    A plain text message can be edited in place (`edit_text`). A photo
+    message (currently only Contributors, see cb_contributors) can't --
+    Telegram rejects turning a photo message into a text one via edit, which
+    is exactly what silently broke the "Back to menu" button there. In that
+    case, delete the photo message and send a fresh text message instead.
+    """
+    if callback.message.photo:
+        try:
+            await callback.message.delete()
+        except Exception:  # noqa: BLE001 - message may already be gone/too old
+            pass
+        await callback.message.answer(text, reply_markup=kb, **kwargs)
+    else:
+        try:
+            await callback.message.edit_text(text, reply_markup=kb, **kwargs)
+        except Exception:  # noqa: BLE001 - e.g. "message is not modified"
+            await callback.message.answer(text, reply_markup=kb, **kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Main menu
 # ---------------------------------------------------------------------------
@@ -59,16 +81,17 @@ async def cmd_menu(message: Message, state: FSMContext) -> None:
 @router.callback_query(F.data == "menu:main")
 async def cb_main_menu(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await callback.message.edit_text("What would you like to do?", reply_markup=main_menu_kb())
+    await _render_menu_text(callback, "What would you like to do?", main_menu_kb())
     await callback.answer()
 
 
 @router.callback_query(F.data == "menu:search")
 async def cb_search_hint(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
+    await _render_menu_text(
+        callback,
         "Just type a song title or an artist name and send it -- no command "
         "needed.",
-        reply_markup=back_to_menu_kb(),
+        back_to_menu_kb(),
     )
     await callback.answer()
 
@@ -79,8 +102,8 @@ async def cb_search_hint(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "menu:terms")
 async def cb_terms(callback: CallbackQuery) -> None:
-    await callback.message.edit_text(
-        content.TERMS_PRIVACY_TEXT, reply_markup=back_to_menu_kb(), disable_web_page_preview=True
+    await _render_menu_text(
+        callback, content.TERMS_PRIVACY_TEXT, back_to_menu_kb(), disable_web_page_preview=True
     )
     await callback.answer()
 
@@ -90,7 +113,7 @@ async def cb_about(callback: CallbackQuery) -> None:
     text = content.ABOUT_TEXT
     if settings.github_url:
         text += f"\n\nSource code: {settings.github_url}"
-    await callback.message.edit_text(text, reply_markup=back_to_menu_kb(), disable_web_page_preview=True)
+    await _render_menu_text(callback, text, back_to_menu_kb(), disable_web_page_preview=True)
     await callback.answer()
 
 
@@ -134,12 +157,13 @@ async def cb_contributors(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "menu:report")
 async def cb_report_start(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(ReportStates.waiting_for_report)
-    await callback.message.edit_text(
+    await _render_menu_text(
+        callback,
         "<b>Report a problem</b>\n\n"
         "Describe the bug, or whatever's wrong -- a screenshot or voice "
         "note works too. Send it in your next message and I'll pass it "
         "straight to the admin.",
-        reply_markup=cancel_report_kb(),
+        cancel_report_kb(),
     )
     await callback.answer()
 
@@ -147,7 +171,7 @@ async def cb_report_start(callback: CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "report:cancel", StateFilter(ReportStates.waiting_for_report))
 async def cb_report_cancel(callback: CallbackQuery, state: FSMContext) -> None:
     await state.clear()
-    await callback.message.edit_text("Report cancelled.", reply_markup=main_menu_kb())
+    await _render_menu_text(callback, "Report cancelled.", main_menu_kb())
     await callback.answer()
 
 
