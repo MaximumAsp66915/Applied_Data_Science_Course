@@ -43,6 +43,24 @@ class SupportBotSettings(BaseSettings):
     # is used -- see api_client.py.
     webapp_api_base_url: str = "http://localhost:8000"
 
+    # Base URL of the same self-hosted Local Bot API Server the webapp uses
+    # for oversized files (see webapp/config.py's `telegram_local_api_base`,
+    # e.g. "http://127.0.0.1:8081"). IMPORTANT: once a Local Bot API Server
+    # is in play for a bot token, every consumer of that token -- webapp AND
+    # this bot -- has to go through it, not a mix of local + the default
+    # https://api.telegram.org. Telegram enforces a single active
+    # getUpdates listener *per bot token*, regardless of which HTTP front
+    # door (cloud or local) the request came through, since the local
+    # server ultimately proxies to the same backend. Leaving this bot on
+    # the cloud default while something else talks to the token through the
+    # local server is exactly what produces "TelegramConflictError:
+    # terminated by other getUpdates request" and silent, unresponsive
+    # commands like /start. Set this to the same value as the webapp's
+    # TELEGRAM_LOCAL_API_BASE and this bot will poll through the local
+    # server too, leaving exactly one consumer. Leave both empty to keep
+    # using the cloud API as before.
+    telegram_local_api_base: str = ""
+
     # --- Mini App deep links ------------------------------------------------
     # https://t.me/{bot_username}?startapp -- the exact link the user asked
     # for, used for the "Open Mini App" button.
