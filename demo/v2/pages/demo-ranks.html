@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>SUT Music — Ranks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        ink: '#14121C',
+        surface: '#1E1B29',
+        raised: '#272335',
+        line: '#322D45',
+        muted: '#9891B0',
+        paper: '#F4F1FA',
+        brand: { DEFAULT: '#7C5CFC', dim: '#5B3FE0', glow: '#A78BFA' },
+        pulse: { DEFAULT: '#FFB454', dim: '#B9803A' },
+        rasp: { DEFAULT: '#FB6F92', dim: '#B24E68' },
+      },
+      fontFamily: {
+        display: ["'Fraunces'", "serif"],
+        sans: ["'Manrope'", "sans-serif"],
+        mono: ["'JetBrains Mono'", "monospace"],
+      },
+      borderRadius: { xl2: '1.25rem' },
+      boxShadow: {
+        soft: '0 8px 30px -10px rgba(0,0,0,0.45)',
+        glow: '0 0 0 1px rgba(124,92,252,0.35), 0 8px 24px -8px rgba(124,92,252,0.45)',
+      },
+      keyframes: {
+        pulseBar: { '0%, 100%': { transform: 'scaleY(0.4)' }, '50%': { transform: 'scaleY(1)' } },
+        floatUp: { '0%': { opacity: '0', transform: 'translateY(8px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+      },
+      animation: {
+        pulseBar: 'pulseBar 1.1s ease-in-out infinite',
+        floatUp: 'floatUp 0.4s ease-out both',
+      },
+    }
+  }
+}
+</script>
+<style>
+  ::-webkit-scrollbar { display: none; }
+  body { -ms-overflow-style: none; scrollbar-width: none; }
+  .rail { scrollbar-width: none; -ms-overflow-style: none; }
+  .rail::-webkit-scrollbar { display: none; }
+</style>
+</head>
+<body class="bg-ink text-paper font-sans antialiased min-h-screen">
+<div class="max-w-md mx-auto min-h-screen relative bg-ink overflow-hidden">
+
+<header class="sticky top-0 z-20 bg-ink/85 backdrop-blur-md px-5 pt-4 pb-3 flex items-center gap-3">
+  <button class="w-9 h-9 rounded-full bg-surface flex items-center justify-center active:scale-[0.97] transition-transform duration-150" aria-label="Back">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+  </button>
+  <h1 class="font-display text-lg text-paper">Ranks</h1>
+</header>
+
+<div class="rail flex gap-2 overflow-x-auto px-5 pb-1 mt-1 snap-x snap-mandatory">
+  <button class="snap-start shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-medium active:scale-[0.97] transition-transform duration-150 bg-brand text-white">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> People
+  </button>
+  <button class="snap-start shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-medium active:scale-[0.97] transition-transform duration-150 bg-surface text-muted border border-line/60">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="18" r="4"/><path d="M12 18V2l7 4"/></svg> Tracks
+  </button>
+  <button class="snap-start shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-sm font-medium active:scale-[0.97] transition-transform duration-150 bg-surface text-muted border border-line/60">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 8-9.04 9.06a2.82 2.82 0 1 0 3.98 3.98L16 12"/><circle cx="17" cy="7" r="5"/></svg> Artists
+  </button>
+</div>
+
+<p class="px-5 mt-4 mb-2 text-[11px] tracking-[0.18em] uppercase text-muted font-semibold">Top · most liked</p>
+
+<div class="flex flex-col">
+  <button class="w-full flex items-center gap-3 px-4 py-3 hover:bg-raised/60 rounded-xl2 active:scale-[0.97] transition-transform duration-150 text-left">
+    <span class="w-5 shrink-0 font-mono text-sm text-muted text-center">1</span>
+    <div class="rounded-full bg-raised border border-line/60 overflow-hidden flex items-center justify-center shrink-0" style="width:44px;height:44px">
+      <img src=https://randomuser.me/api/portraits/men/32.jpg alt="" class="w-full h-full object-cover" />
+    </div>
+    <div class="min-w-0 flex-1">
+      <p class="truncate text-sm font-medium text-paper">Alex Johnson</p>
+      <p class="truncate text-xs text-muted">@alexj</p>
+    </div>
+    <div class="text-right shrink-0">
+      <p class="font-mono text-sm text-brand-glow">186</p>
+      <p class="text-[10px] text-muted">likes</p>
+    </div>
+  </button>
+  <button class="w-full flex items-center gap-3 px-4 py-3 hover:bg-raised/60 rounded-xl2 active:scale-[0.97] transition-transform duration-150 text-left">
+    <span class="w-5 shrink-0 font-mono text-sm text-muted text-center">2</span>
+    <div class="rounded-full bg-raised border border-line/60 overflow-hidden flex items-center justify-center shrink-0" style="width:44px;height:44px">
+      <img src=https://randomuser.me/api/portraits/women/44.jpg alt="" class="w-full h-full object-cover" />
+    </div>
+    <div class="min-w-0 flex-1">
+      <p class="truncate text-sm font-medium text-paper">Sarah Chen</p>
+      <p class="truncate text-xs text-muted">@sarahc</p>
+    </div>
+    <div class="text-right shrink-0">
+      <p class="font-mono text-sm text-brand-glow">164</p>
+      <p class="text-[10px] text-muted">likes</p>
+    </div>
+  </button>
+  <button class="w-full flex items-center gap-3 px-4 py-3 hover:bg-raised/60 rounded-xl2 active:scale-[0.97] transition-transform duration-150 text-left">
+    <span class="w-5 shrink-0 font-mono text-sm text-muted text-center">3</span>
+    <div class="rounded-full bg-raised border border-line/60 overflow-hidden flex items-center justify-center shrink-0" style="width:44px;height:44px">
+      <img src=https://randomuser.me/api/portraits/men/22.jpg alt="" class="w-full h-full object-cover" />
+    </div>
+    <div class="min-w-0 flex-1">
+      <p class="truncate text-sm font-medium text-paper">Mike Ross</p>
+      <p class="truncate text-xs text-muted">@miker</p>
+    </div>
+    <div class="text-right shrink-0">
+      <p class="font-mono text-sm text-brand-glow">142</p>
+      <p class="text-[10px] text-muted">likes</p>
+    </div>
+  </button>
+  <button class="w-full flex items-center gap-3 px-4 py-3 hover:bg-raised/60 rounded-xl2 active:scale-[0.97] transition-transform duration-150 text-left">
+    <span class="w-5 shrink-0 font-mono text-sm text-muted text-center">4</span>
+    <div class="rounded-full bg-raised border border-line/60 overflow-hidden flex items-center justify-center shrink-0" style="width:44px;height:44px">
+      <img src=https://randomuser.me/api/portraits/women/68.jpg alt="" class="w-full h-full object-cover" />
+    </div>
+    <div class="min-w-0 flex-1">
+      <p class="truncate text-sm font-medium text-paper">Emma Wilson</p>
+      <p class="truncate text-xs text-muted">@emmaw</p>
+    </div>
+    <div class="text-right shrink-0">
+      <p class="font-mono text-sm text-brand-glow">128</p>
+      <p class="text-[10px] text-muted">likes</p>
+    </div>
+  </button>
+  <button class="w-full flex items-center gap-3 px-4 py-3 hover:bg-raised/60 rounded-xl2 active:scale-[0.97] transition-transform duration-150 text-left">
+    <span class="w-5 shrink-0 font-mono text-sm text-muted text-center">5</span>
+    <div class="rounded-full bg-raised border border-line/60 overflow-hidden flex items-center justify-center shrink-0" style="width:44px;height:44px">
+      <img src=https://randomuser.me/api/portraits/men/51.jpg alt="" class="w-full h-full object-cover" />
+    </div>
+    <div class="min-w-0 flex-1">
+      <p class="truncate text-sm font-medium text-paper">David Kim</p>
+      <p class="truncate text-xs text-muted">@davidk</p>
+    </div>
+    <div class="text-right shrink-0">
+      <p class="font-mono text-sm text-brand-glow">115</p>
+      <p class="text-[10px] text-muted">likes</p>
+    </div>
+  </button>
+  <button class="w-full flex items-center gap-3 px-4 py-3 hover:bg-raised/60 rounded-xl2 active:scale-[0.97] transition-transform duration-150 text-left">
+    <span class="w-5 shrink-0 font-mono text-sm text-muted text-center">6</span>
+    <div class="rounded-full bg-raised border border-line/60 overflow-hidden flex items-center justify-center shrink-0" style="width:44px;height:44px">
+      <img src=https://randomuser.me/api/portraits/women/12.jpg alt="" class="w-full h-full object-cover" />
+    </div>
+    <div class="min-w-0 flex-1">
+      <p class="truncate text-sm font-medium text-paper">Lisa Park</p>
+      <p class="truncate text-xs text-muted">@lisap</p>
+    </div>
+    <div class="text-right shrink-0">
+      <p class="font-mono text-sm text-brand-glow">98</p>
+      <p class="text-[10px] text-muted">likes</p>
+    </div>
+  </button>
+</div>
+
+<div class="h-10"></div>
+</div></body></html>

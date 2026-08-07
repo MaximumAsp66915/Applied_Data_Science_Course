@@ -41,6 +41,25 @@ TELEGRAM_API = "https://api.telegram.org"
 _STREAM_TIMEOUT = httpx.Timeout(connect=15.0, read=30.0, write=15.0, pool=15.0)
 _API_TIMEOUT = httpx.Timeout(10.0)
 
+# Substring Telegram's Bot API puts in `description` when `getFile` refuses
+# a file because it exceeds the (standard, non-local) Bot API's 20MB
+# download limit. This is unrelated to file_id validity -- a fresh file_id
+# for the same message will hit the exact same error, so callers must NOT
+# treat this like a stale/invalid file_id and re-resolve.
+_FILE_TOO_BIG_MARKER = "file is too big"
+
+
+class TelegramFileTooBigError(Exception):
+    """Raised by resolve_telegram_file_url() when Telegram's getFile rejects
+    a file purely for exceeding the Bot API's download size limit (20MB on
+    the standard API). Distinct from a generic HTTPStatusError so callers
+    don't mistake it for a stale/invalid file_id and burn a re-resolve +
+    retry loop that can only ever fail the same way again."""
+
+    def __init__(self, file_id: str):
+        super().__init__(f"File too big to download via Bot API: {file_id}")
+        self.file_id = file_id
+
 
 def cover_url_for(cover_id: int | None) -> str | None:
     if not cover_id:
@@ -52,18 +71,44 @@ def track_stream_path(track_id: int) -> str:
     return f"/api/tracks/{track_id}/stream"
 
 
-async def resolve_telegram_file_url(file_id: str) -> str:
-    """Calls Bot API getFile, returns a short-lived direct download URL.
-    Raises httpx.HTTPStatusError if file_id is invalid/stale."""
+async def resolve_telegram_file_url(file_id: str, *, base: str | None = None) -> str:
+    """Calls Bot API getFile against `base` (public api.telegram.org by
+    default), returns a short-lived direct download URL.
+
+    Raises TelegramFileTooBigError if the file exceeds the download size
+    limit of whichever server `base` points at (20MB on the standard public
+    API; 2000MB on a Local Bot API Server run with --local -- see
+    settings.telegram_local_api_base). A fresh file_id won't fix this
+    against the SAME base, so callers should either retry against a
+    different base or surface the error, not re-resolve the file_id.
+    Raises httpx.HTTPStatusError for any other rejection (e.g. file_id is
+    genuinely invalid/stale)."""
+    base = (base or TELEGRAM_API).rstrip("/")
     async with httpx.AsyncClient(timeout=_API_TIMEOUT) as client:
         resp = await client.get(
-            f"{TELEGRAM_API}/bot{settings.bot_token}/getFile",
+            f"{base}/bot{settings.bot_token}/getFile",
             params={"file_id": file_id},
             timeout=_API_TIMEOUT,
         )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            description = (resp.json().get("description") or "") if resp.content else ""
+            if _FILE_TOO_BIG_MARKER in description.lower():
+                raise TelegramFileTooBigError(file_id)
+            resp.raise_for_status()
         file_path = resp.json()["result"]["file_path"]
-        return f"{TELEGRAM_API}/file/bot{settings.bot_token}/{file_path}"
+        return f"{base}/file/bot{settings.bot_token}/{file_path}"
+
+
+async def resolve_telegram_file_url_local(file_id: str) -> str | None:
+    """Same as resolve_telegram_file_url(), but against the Local Bot API
+    Server configured via settings.telegram_local_api_base (2000MB download
+    limit instead of the public API's 20MB). Returns None if no local
+    server is configured, so callers can treat that as "fallback
+    unavailable" with a plain `if`. Still raises TelegramFileTooBigError /
+    httpx errors for an actually-configured server that itself fails."""
+    if not settings.telegram_local_api_base:
+        return None
+    return await resolve_telegram_file_url(file_id, base=settings.telegram_local_api_base)
 
 
 # In-memory cache for resolve_bot_username() below -- a bot's @username

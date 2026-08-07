@@ -1,0 +1,549 @@
+:root {
+  --device-accent: #7C5CFC;
+  --device-muted: #9891B0;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  /* Fill the real document box, not the zoom-sensitive visual viewport
+     (100vw/100vh/100dvh). This is "full size of the page", so native
+     browser/OS zoom just enlarges everything in place. */
+  margin: 0;
+  width: 100%;
+  min-height: 100%;
+  background: #0E0C15;
+}
+
+body {
+  font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ---------------------------------------------------------------------
+   Device shell sizing (zoom-safe, CSS-only):
+   Each shell has an intrinsic --w/--h (its "natural" size) and a fixed
+   aspect-ratio matching the real device. It scales down to fit its
+   container via max-width/max-height, and back up to its natural size
+   otherwise - no JS measurement, no transform:scale() driven by
+   ResizeObserver. This means browser/page zoom (ctrl+scroll, pinch,
+   the 90/100/170% control in the URL bar) is handled entirely natively:
+   zooming just makes the whole page (device included) bigger, exactly
+   like zooming any normal webpage, instead of a script "fighting" it by
+   recomputing a smaller scale in response.
+   --------------------------------------------------------------------- */
+.demo-device-shell {
+  position: relative;
+  width: var(--w);
+  height: var(--h);
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: auto;
+  background: #050505;
+  padding: 12px;
+  box-shadow:
+    0 40px 90px -20px rgba(0, 0, 0, 0.75),
+    0 20px 40px -20px rgba(0, 0, 0, 0.6);
+  flex: none;
+  /* overflow is intentionally NOT hidden on the outer shell - the corner
+     radius is enforced by .demo-device-frame below via its own
+     overflow:hidden, which is what actually clips content/screen to the
+     rounded rect. Keeping it off the outer shell avoids clipping the
+     button nubs that sit outside the 0..100% box (left/right edges). */
+}
+
+.demo-device-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  overflow: hidden;
+  /* This element is the one that actually gets rounded + clipped, so the
+     rounded corners always render regardless of scale/zoom/subpixel
+     rounding - it never depends on a `transform: scale()` on an ancestor,
+     which is what previously made corners look squared off at some zoom
+     levels (Chromium can rasterize border-radius + ancestor transform
+     scale combinations inconsistently). */
+  box-shadow:
+    inset 0 0 0 2px #3a3a3a,
+    inset 0 0 0 5px #050505;
+  background: #050505;
+}
+
+/* ---------------- iPhone ---------------- */
+.demo-device-shell[data-device='iphone-17-pro-max'] { border-radius: 64px; }
+.demo-device-shell[data-device='iphone-17-pro-max'] .demo-device-frame { border-radius: 64px; }
+.demo-device-shell[data-device='iphone-17-pro-max'] .demo-device-screen { border-radius: 52px; }
+
+/* ---------------- Samsung S24 / S26 Ultra ----------------
+   Real device cues: titanium frame with visibly flat sides (not a smooth
+   pill like the iPhone), small-radius squared corners, centered punch-hole
+   selfie camera, flush volume rocker + power button on the right edge
+   only (no mute switch), and an S-Pen slot notch on the bottom edge. */
+.demo-device-shell[data-frame~='samsung'] {
+  background: #2b2b2e;
+  padding: 7px;
+}
+
+.demo-device-shell[data-device='s24-ultra'] { border-radius: 26px; }
+.demo-device-shell[data-device='s24-ultra'] .demo-device-frame { border-radius: 26px; }
+.demo-device-shell[data-device='s24-ultra'] .demo-device-screen { border-radius: 19px; }
+
+.demo-device-shell[data-device='s26-ultra'] { border-radius: 28px; }
+.demo-device-shell[data-device='s26-ultra'] .demo-device-frame { border-radius: 28px; }
+.demo-device-shell[data-device='s26-ultra'] .demo-device-screen { border-radius: 21px; }
+
+.demo-device-shell[data-frame~='samsung'] .demo-device-frame {
+  background: #050505;
+  box-shadow:
+    inset 0 0 0 2px #4b4b4e,
+    inset 0 0 0 4px #0c0c0d;
+}
+
+/* ---------------- iPad ---------------- */
+.demo-device-shell[data-device='ipad-pro'] {
+  border-radius: 44px;
+  padding: 18px;
+}
+.demo-device-shell[data-device='ipad-pro'] .demo-device-frame { border-radius: 44px; }
+.demo-device-shell[data-device='ipad-pro'] .demo-device-screen { border-radius: 24px; }
+
+/* ---------------- Foldables ---------------- */
+.demo-device-shell[data-device='z-fold-7'] {
+  background: #232326;
+  border-radius: 22px;
+  padding: 9px;
+}
+.demo-device-shell[data-device='z-fold-7'] .demo-device-frame { border-radius: 22px; }
+.demo-device-shell[data-device='z-fold-7'] .demo-device-screen { border-radius: 13px; }
+
+.demo-device-shell[data-device='z-flip-7'] {
+  border-radius: 30px;
+  padding: 7px;
+}
+.demo-device-shell[data-device='z-flip-7'] .demo-device-frame { border-radius: 30px; }
+.demo-device-shell[data-device='z-flip-7'] .demo-device-screen { border-radius: 21px; }
+
+.demo-device-hinge-line {
+  position: absolute;
+  z-index: 4;
+  background: rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+}
+
+.demo-device-shell[data-device='z-fold-7'] .demo-device-hinge-line {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-1px);
+}
+
+.demo-device-shell[data-device='z-flip-7'] .demo-device-hinge-line {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-1px);
+}
+
+/* ---------------- Laptop ---------------- */
+.demo-device-shell[data-frame='laptop'] {
+  background: #1b1b1d;
+  border-radius: 18px;
+  padding: 16px 16px 34px;
+}
+.demo-device-shell[data-frame='laptop'] .demo-device-frame { border-radius: 8px; }
+.demo-device-shell[data-frame='laptop'] .demo-device-screen { border-radius: 8px; }
+
+.demo-device-shell[data-frame='laptop']::after {
+  content: '';
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90px;
+  height: 6px;
+  border-radius: 3px;
+  background: #3a3a3c;
+}
+
+/* ---------------- Shared screen/content ---------------- */
+.demo-device-screen {
+  width: 100%;
+  height: 100%;
+  background: #14121C;
+  overflow: hidden;
+  position: relative;
+}
+
+.demo-device-screen iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  transition: opacity 0.45s ease;
+}
+
+.demo-device-island {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 108px;
+  height: 32px;
+  background: #000;
+  border-radius: 18px;
+  z-index: 5;
+}
+
+.demo-device-shell[data-device='ipad-pro'] .demo-device-island {
+  top: 18px;
+  width: 140px;
+  height: 36px;
+}
+
+/* Punch-hole front camera used by current Android flagships/foldables. */
+.demo-device-punch-hole {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 13px;
+  height: 13px;
+  background: #000;
+  border-radius: 50%;
+  z-index: 5;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.05), 0 0 0 3px rgba(0,0,0,0.3);
+}
+
+.demo-device-shell[data-device='z-fold-7'] .demo-device-punch-hole {
+  left: auto;
+  right: 14px;
+  transform: none;
+}
+
+/* Small webcam dot used for iPad / laptop frames. */
+.demo-device-cam-dot {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 8px;
+  height: 8px;
+  background: #000;
+  border-radius: 50%;
+  z-index: 5;
+}
+
+.demo-device-shell[data-frame='laptop'] .demo-device-cam-dot {
+  top: 6px;
+}
+
+.demo-device-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+}
+
+.demo-device-shell[data-device='iphone-17-pro-max'] .demo-device-content {
+  top: 58px;
+}
+
+.demo-device-home-indicator {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 134px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(244, 241, 250, 0.35);
+  z-index: 5;
+}
+
+.demo-device-shell[data-device='ipad-pro'] .demo-device-home-indicator {
+  width: 180px;
+  height: 6px;
+  bottom: 10px;
+}
+
+/* ---------------- Buttons ---------------- */
+.demo-device-button {
+  position: absolute;
+  background: #050505;
+  border: 1px solid #2c2c2c;
+}
+
+.demo-device-shell[data-device='ipad-pro'] .demo-device-button,
+.demo-device-shell[data-frame='laptop'] .demo-device-button {
+  display: none;
+}
+
+/* iPhone-style buttons (mute left, volume left, power right) */
+.demo-device-mute { left: -3px; top: 168px; width: 4px; height: 32px; border-radius: 2px 0 0 2px; }
+.demo-device-vol-up { left: -3px; top: 224px; width: 4px; height: 56px; border-radius: 2px 0 0 2px; }
+.demo-device-vol-down { left: -3px; top: 292px; width: 4px; height: 56px; border-radius: 2px 0 0 2px; }
+.demo-device-power { right: -3px; top: 240px; width: 4px; height: 84px; border-radius: 0 2px 2px 0; }
+
+/* Samsung-style buttons: flush volume rocker + power, both on the right
+   edge only, no mute switch. */
+.demo-device-shell[data-frame~='samsung'] .demo-device-vol-rocker {
+  right: -3px;
+  top: 150px;
+  width: 4px;
+  height: 78px;
+  border-radius: 0 2px 2px 0;
+  background: #1c1c1e;
+  border-color: #4b4b4e;
+}
+
+.demo-device-shell[data-frame~='samsung'] .demo-device-power-samsung {
+  right: -3px;
+  top: 238px;
+  width: 4px;
+  height: 56px;
+  border-radius: 0 2px 2px 0;
+  background: #1c1c1e;
+  border-color: #4b4b4e;
+}
+
+.demo-device-spen-slot {
+  position: absolute;
+  bottom: -3px;
+  left: 50%;
+  transform: translateX(28px);
+  width: 22px;
+  height: 4px;
+  border-radius: 2px;
+  background: #1c1c1e;
+  border: 1px solid #4b4b4e;
+}
+
+/* ---------------- Page layout ---------------- */
+.demo-clip-page {
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 40%, #17131F, #0E0C15 70%);
+  color: #F4F1FA;
+  padding: 24px;
+}
+
+.demo-clip-page::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(124, 92, 252, 0.16), transparent 60%);
+  pointer-events: none;
+}
+
+.demo-clip-scene {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 460px;
+  height: auto;
+}
+
+.demo-clip-label {
+  font-size: 11px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #9891B0;
+  font-weight: 700;
+  margin-bottom: 5px;
+  white-space: nowrap;
+}
+
+.demo-clip-device {
+  position: relative;
+  width: 100%;
+  max-width: min(90vw, 620px);
+  /* Cap height so tall shells (phones) don't overflow the viewport height
+     on short/landscape windows; max-width above caps width without forcing
+     a phone-only width onto wider shells like the laptop or unfolded fold.
+     Both are plain CSS constraints - no JS recalculation, so zoom scales
+     this normally. */
+  max-height: min(78vh, 900px);
+  display: flex;
+  justify-content: center;
+  perspective: 2000px;
+  /* Parallax layer: a small translate/Z shift applied per demo step, on
+     top of the shell's own rotate/scale below - matches the two-layer
+     camera move from the original cinematic version. */
+  transition: transform 1.1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.demo-clip-device .demo-device-shell {
+  margin: 0 auto;
+  transform-style: preserve-3d;
+  /* The actual per-step camera move (rotateX/rotateY/scale) is applied
+     here via inline style from JS; this transition is what makes it glide
+     instead of snapping instantly between steps. */
+  transition: transform 1.1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.demo-clip-hud {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  width: min(320px, calc(100% - 24px));
+}
+
+.demo-clip-caption {
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #9891B0;
+  font-weight: 700;
+  text-align: center;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: all 0.45s ease;
+}
+
+.demo-clip-caption.active { opacity: 1; transform: translateY(0); }
+
+.demo-clip-progress {
+  width: 100%;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(244, 241, 250, 0.12);
+  overflow: hidden;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.demo-clip-progress.visible { opacity: 1; }
+
+.demo-clip-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #7C5CFC, #A78BFA);
+  border-radius: 3px;
+}
+
+.demo-clip-progress-fill.animate { transition: width 4s linear; }
+
+.demo-clip-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.demo-clip-icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #F4F1FA;
+}
+
+.demo-clip-icon-btn svg { width: 16px; height: 16px; }
+
+.demo-clip-start-btn {
+  background: #7C5CFC;
+  color: white;
+  border: none;
+  padding: 13px 34px;
+  border-radius: 100px;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  box-shadow: 0 10px 24px rgba(124, 92, 252, 0.35);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.demo-index-page {
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 0%, #17131F, #0E0C15 65%);
+  color: #F4F1FA;
+  padding: 24px;
+}
+
+.demo-index-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 1100px;
+}
+
+.demo-index-label {
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #9891B0;
+  font-weight: 700;
+  margin-bottom: 18px;
+}
+
+.demo-index-stage {
+  position: relative;
+  width: 100%;
+  max-width: min(90vw, 780px);
+  max-height: min(82vh, 900px);
+  display: flex;
+  justify-content: center;
+}
+
+.demo-index-stage .demo-device-shell {
+  margin: 0 auto;
+}
+
+.device-picker {
+  position: fixed;
+  top: 14px;
+  right: 14px;
+  z-index: 200;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(9, 8, 16, 0.86);
+  color: #F4F1FA;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+
+@media (max-width: 720px) {
+  .demo-clip-page {
+    padding: 18px 12px 24px;
+  }
+
+  .demo-clip-hud {
+    width: min(320px, calc(100% - 24px));
+    gap: 10px;
+  }
+
+  .demo-clip-label {
+    margin-bottom: 4px;
+  }
+
+  .demo-index-page {
+    padding: 18px 12px 24px;
+  }
+}

@@ -15,10 +15,12 @@ from ..serializers import (
 from ..media import (
     open_telegram_stream,
     resolve_telegram_file_url,
+    resolve_telegram_file_url_local,
     resolve_message_file_id,
     resolve_bot_username,
     copy_track_to_user,
     TelegramSendError,
+    TelegramFileTooBigError,
 )
 
 router = APIRouter(prefix="/api/tracks", tags=["tracks"])
@@ -199,6 +201,26 @@ async def get_track_queue(
     }
 
 
+async def _stream_via_local_fallback(file_id: str, range_header: str | None):
+    """Attempts playback of an oversized file through the Local Bot API
+    Server (settings.telegram_local_api_base), which has a 2000MB download
+    limit instead of the public API's 20MB. Returns an open TelegramStream
+    on success, or None if no local server is configured or it also fails
+    (not running, misconfigured, network error, or the file somehow still
+    exceeds its limit too) -- callers treat None as "no fallback available"
+    and fail clean rather than propagate a local-server-specific error."""
+    try:
+        url = await resolve_telegram_file_url_local(file_id)
+    except (TelegramFileTooBigError, httpx.HTTPStatusError, httpx.TransportError):
+        return None
+    if not url:
+        return None
+    try:
+        return await open_telegram_stream(url, range_header)
+    except (httpx.HTTPStatusError, httpx.TransportError):
+        return None
+
+
 async def _resolve_stream_url(row: dict, track_id: int, range_header: str | None):
     """Returns an already-connected TelegramStream for this track, resolving
     (and persisting) a fresh file_id first if needed. Raises HTTPException on
@@ -211,6 +233,21 @@ async def _resolve_stream_url(row: dict, track_id: int, range_header: str | None
         try:
             url = await resolve_telegram_file_url(file_id)
             return await open_telegram_stream(url, range_header)
+        except TelegramFileTooBigError:
+            # Not a stale/invalid file_id -- a fresh one will hit the exact
+            # same public-API size limit, so re-resolving via
+            # resolve_message_file_id would just burn a forward-message
+            # call for nothing. Try the Local Bot API Server fallback
+            # (2000MB limit) instead before giving up.
+            stream = await _stream_via_local_fallback(file_id, range_header)
+            if stream:
+                return stream
+            raise HTTPException(
+                413,
+                "Track exceeds the 20MB Bot API download limit and can't be "
+                "streamed. Configure TELEGRAM_LOCAL_API_BASE (a Local Bot "
+                "API Server) to enable playback for large files.",
+            )
         except (httpx.HTTPStatusError, httpx.TransportError):
             pass  # stored file_id is stale/invalid, or Telegram hiccuped -- fall through to re-resolve
 
@@ -224,6 +261,21 @@ async def _resolve_stream_url(row: dict, track_id: int, range_header: str | None
     try:
         url = await resolve_telegram_file_url(fresh_file_id)
         stream = await open_telegram_stream(url, range_header)
+    except TelegramFileTooBigError:
+        # Persist the fresh file_id anyway -- it's valid, just for a file
+        # too large for the public API -- so future attempts skip straight
+        # to the local-fallback/fast-fail branch instead of re-forwarding
+        # the message again.
+        await repo.set_track_file_id(track_id, fresh_file_id)
+        stream = await _stream_via_local_fallback(fresh_file_id, range_header)
+        if stream:
+            return stream
+        raise HTTPException(
+            413,
+            "Track exceeds the 20MB Bot API download limit and can't be "
+            "streamed. Configure TELEGRAM_LOCAL_API_BASE (a Local Bot API "
+            "Server) to enable playback for large files.",
+        )
     except (httpx.HTTPStatusError, httpx.TransportError):
         raise HTTPException(502, "Failed to fetch track from Telegram")
 

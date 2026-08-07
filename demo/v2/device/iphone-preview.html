@@ -5,18 +5,29 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Device Preview</title>
   <link rel="stylesheet" href="device-preview.css" />
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
 </head>
 <body>
   <select class="device-picker" id="devicePicker" aria-label="Select device preview">
     <option value="iphone-17-pro-max">iPhone 17 Pro Max</option>
     <option value="s24-ultra">Samsung S24 Ultra</option>
     <option value="s26-ultra">Samsung S26 Ultra</option>
+    <option value="z-fold-7">Galaxy Z Fold 7 (foldable)</option>
+    <option value="z-flip-7">Galaxy Z Flip 7 (foldable)</option>
     <option value="ipad-pro">iPad Pro</option>
+    <option value="macbook-pro-14">MacBook Pro 14" (laptop)</option>
   </select>
 
   <div class="demo-clip-page">
     <div class="demo-clip-scene" id="clipScene">
-      <div class="demo-clip-label" id="deviceLabel">iPhone 17 Pro Max</div>
+      <!-- Static caption - always reads "SUT MUSIC - DEMO", regardless of
+           which device is selected below. -->
+      <div class="demo-clip-label" id="deviceLabel">SUT MUSIC - DEMO</div>
       <div class="demo-clip-device" id="deviceScene"></div>
       <div class="demo-clip-hud">
         <div id="caption" class="demo-clip-caption">SUT Music Experience</div>
@@ -47,7 +58,6 @@
   <script>
     const labelEl = document.getElementById('deviceLabel');
     const deviceRoot = document.getElementById('deviceScene');
-    const stage = document.getElementById('clipScene');
     const caption = document.getElementById('caption');
     const startUI = document.getElementById('start-ui');
     const startBtn = document.getElementById('startBtn');
@@ -71,7 +81,15 @@
       window.location.href = url.toString();
     });
 
-    const { shell: phone } = window.devicePreview.setDevicePreviewLayout(deviceRoot, labelEl, deviceKey, pagePath, { margin: 24, scene: stage });
+    // Sizing of the device itself is pure CSS (no JS fit-to-container
+    // scaling) - see the note above setDevicePreviewLayout in
+    // device-preview.js. The `phone.style.transform` calls below are a
+    // deliberate cinematic pan/zoom effect layered on top, not a
+    // container-fit calculation, so they don't fight browser zoom the
+    // way the old fit logic did.
+    const { shell: phone } = window.devicePreview.setDevicePreviewLayout(deviceRoot, labelEl, deviceKey, pagePath, {
+      staticLabel: 'SUT MUSIC - DEMO'
+    });
 
     const STEP_MS = 4000;
     const sequence = [
@@ -109,6 +127,7 @@
         caption.innerText = data.label;
         caption.classList.add('active');
         phone.style.transform = data.cam;
+        deviceRoot.style.transform = data.stageT;
         requestAnimationFrame(() => {
           progressFill.classList.add('animate');
           progressFill.style.width = '100%';

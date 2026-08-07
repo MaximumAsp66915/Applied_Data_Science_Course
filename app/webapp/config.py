@@ -9,6 +9,16 @@ class Settings(BaseSettings):
     suggestion_engine_url: str = ""
     cors_origins: str = "http://localhost:5173"
 
+    # Base URL of a self-hosted Local Bot API Server
+    # (https://github.com/tdlib/telegram-bot-api), used ONLY as a fallback
+    # for files that exceed the standard Bot API's 20MB getFile/download
+    # limit (see webapp/media.py's TelegramFileTooBigError). A local server
+    # run with --local raises that limit to 2000MB. Point this at it, e.g.
+    # "http://127.0.0.1:8081" -- same BOT_TOKEN, different base URL, no
+    # other code changes needed. Leave empty to skip the fallback entirely
+    # (oversized tracks then fail cleanly with a 413, as before).
+    telegram_local_api_base: str = ""
+
     # @BotFather username (no @, no https://t.me/), e.g. "SUT_Music_bot" --
     # used to build the "via ..." deep link in download captions
     # (https://t.me/{bot_username}?startapp=track_{id}), see
