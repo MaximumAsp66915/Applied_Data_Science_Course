@@ -23,7 +23,7 @@
 # on every deploy that touches app/.
 
 [Unit]
-Description=SUTMusic app stack (bot, webapp, frontend preview, cloudflared tunnel)
+Description=SUTMusic app stack (bot, webapp, frontend preview, cloudflared tunnel, support bot)
 After=network-online.target
 Wants=network-online.target
 

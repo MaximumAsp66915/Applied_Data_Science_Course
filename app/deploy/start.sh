@@ -8,12 +8,13 @@
 # deploy.
 #
 # Starts, in $APP_DIR:
-#   1. the Telegram bot        -> app.log
-#   2. the FastAPI webapp      -> webapp.log
+#   1. the Telegram bot         -> app.log
+#   2. the FastAPI webapp       -> webapp.log
 #   3. the frontend build+preview -> frontend.log
-#   4. the cloudflared tunnel  -> cloudflare.log
+#   4. the cloudflared tunnel   -> cloudflare.log
+#   5. the support bot          -> support_bot.log
 # then tails cloudflare.log for the public *.trycloudflare.com URL and
-# writes it to url.txt. All five files live directly under $APP_DIR, as
+# writes it to url.txt. All log files live directly under $APP_DIR, as
 # requested.
 #
 # NOTE: the recommendation engine (../engine) is deliberately NOT part of
@@ -37,12 +38,14 @@ APP_LOG="$APP_DIR/app.log"
 WEBAPP_LOG="$APP_DIR/webapp.log"
 FRONTEND_LOG="$APP_DIR/frontend.log"
 CLOUDFLARE_LOG="$APP_DIR/cloudflare.log"
+SUPPORT_BOT_LOG="$APP_DIR/support_bot.log"
 URL_FILE="$APP_DIR/url.txt"
 
 : > "$APP_LOG"
 : > "$WEBAPP_LOG"
 : > "$FRONTEND_LOG"
 : > "$CLOUDFLARE_LOG"
+: > "$SUPPORT_BOT_LOG"
 : > "$URL_FILE"
 
 # --- venv: already provisioned on the server, just activate + sync deps ---
@@ -82,6 +85,12 @@ PIDS+=("$!")
 
 # 4) Cloudflare quick tunnel, pointed at the frontend preview server
 nohup cloudflared tunnel --protocol quic --url http://localhost:4173 >> "$CLOUDFLARE_LOG" 2>&1 &
+PIDS+=("$!")
+
+# 5) Support bot (search / report / info companion, controller/bot/bots/
+#    support_bot/) -- only talks to the webapp over HTTP, no DB access, so
+#    it's safe to start after the webapp without any extra coordination.
+nohup python run_support_bot.py >> "$SUPPORT_BOT_LOG" 2>&1 &
 PIDS+=("$!")
 
 # --- Wait for cloudflared to print the public URL, then record it (both

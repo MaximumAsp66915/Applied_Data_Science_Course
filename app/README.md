@@ -29,7 +29,16 @@ SUTMusic/
 │   └── routers/                 #   auth, users, tracks, artists, home, search,
 │                                 #   ranks, suggestions, media
 ├── frontend/                     # <-- React (Vite + Tailwind) Mini App UI
-├── requirements.txt               # bot + webapp dependencies, merged
+├── run_support_bot.py             # <-- NEW: support bot entrypoint
+├── controller/bot/bots/support_bot/  # <-- NEW: search / report / info bot (see below)
+│   ├── bot.py                      #   Bot/Dispatcher construction, long polling
+│   ├── config.py                   #   settings (token, admin chat, deep links, GitHub repo)
+│   ├── api_client.py                #   calls webapp's GET /api/search -- no DB access
+│   ├── content.py                    #   Terms & Privacy / About text, live GitHub contributors
+│   ├── keyboards.py                   #   inline keyboards
+│   ├── states.py                       #   FSM state for the report flow
+│   └── handlers.py                      #   all chat handlers
+├── requirements.txt               # bot + webapp + support bot dependencies, merged
 └── .env.example
 ```
 
@@ -92,6 +101,21 @@ For production, build the frontend (`npm run build`) and serve `frontend/dist`
 from your CDN/static host, pointing `VITE_API_URL` at your deployed
 `webapp` backend, and set `CORS_ORIGINS` in `.env` to that frontend's origin.
 
+**Support bot** (search / report / info -- needs the webapp above running first):
+```bash
+python run_support_bot.py
+```
+This is a plain Bot API bot (long polling via [aiogram](https://docs.aiogram.dev/)),
+answering in a normal chat with `@SUTMusic_Bot` (same token as `BOT_TOKEN`
+unless `SUPPORT_BOT_TOKEN` is set). It never touches Postgres -- it only
+calls the webapp's own public `GET /api/search`, so it can be started,
+stopped or restarted independently of the bot/webapp/frontend. Sending it
+any text searches tracks & artists (never Telegram users); its menu also
+opens the Mini App, forwards bug reports to `ADMIN_CHAT_ID`, and shows
+Terms & Privacy, a live GitHub contributors list (`GITHUB_REPO`), and an
+About page. `deploy/start.sh` runs it as a fifth process alongside the
+other four.
+
 ## Required env vars (see `.env.example`)
 
 - `BOT_TOKEN` — the classic `@BotFather` token. **This is new** — your bot
@@ -103,6 +127,10 @@ from your CDN/static host, pointing `VITE_API_URL` at your deployed
   encrypted session file (`db/internal_db/internal_db_session.session`)
   already carries working credentials.
 - `CORS_ORIGINS`, `SUGGESTION_ENGINE_URL` — webapp-only, see `.env.example`.
+- `ADMIN_CHAT_ID`, `WEBAPP_API_BASE_URL`, `MINI_APP_DEEPLINK`, `BOT_USERNAME`,
+  `SUPPORT_BOT_TOKEN`, `GITHUB_REPO`, `GITHUB_TOKEN` — support-bot-only, see
+  `.env.example`. Only `GITHUB_REPO` is required for the Contributors/About
+  pages to show anything useful; everything else has a working default.
 
 ## What's stubbed / simplified (flagged honestly, not hidden)
 
