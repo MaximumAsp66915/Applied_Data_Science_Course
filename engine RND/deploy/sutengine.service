@@ -1,0 +1,53 @@
+# SUTMusic recommendation engine (R&D build) -- systemd USER unit.
+#
+# Byte-for-byte compatible in role with engine_v1/engine_v2's unit of the same
+# name: same WorkingDirectory, same ExecStart path, same user-unit model, so
+# whichever engine folder is rsynced into the server's single `engine/` runs
+# under this unit unmodified. Deliberately separate from sutmusic.service
+# (the bot/webapp/frontend/tunnel stack) so the two restart independently.
+#
+# One-time setup on the server:
+#   cd /srv/bots/telegram/SUTMusic_app/engine
+#   bash setup_venv.sh                      # creates .venv, builds model_params/
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/sutengine.service ~/.config/systemd/user/sutengine.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now sutengine.service
+#
+# Note: .github/workflows/deploy-engine.yml selects folders matching
+# `engine_v*`. This folder is named "engine RND" and therefore will never be
+# auto-deployed -- that is the intent. To ship it, copy it to `engine_v3/`.
+
+[Unit]
+Description=SUTMusic recommendation engine, R&D build (FastAPI, 127.0.0.1 only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/bots/telegram/SUTMusic_app/engine
+ExecStart=/srv/bots/telegram/SUTMusic_app/engine/deploy/start.sh
+Restart=always
+RestartSec=5
+# start.sh tears down its own child on TERM (see its trap), so a plain TERM to
+# the cgroup is enough on stop/restart.
+KillMode=control-group
+TimeoutStopSec=20
+
+# The engine reads its artifacts and writes one log file. Nothing else on the
+# box is its business -- engine_v1/v2 ran with no confinement at all.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/srv/bots/telegram/SUTMusic_app/engine
+# Loopback-only binding is the entire security boundary for this service; this
+# makes it structural rather than a convention in a default argument.
+IPAddressAllow=localhost
+IPAddressDeny=any
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
