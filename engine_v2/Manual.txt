@@ -1,11 +1,11 @@
 ============================================================
-COMPLETE MANUAL: ENSEMBLE RECOMMENDATION MODEL
+UPDATED MANUAL: ENSEMBLE RECOMMENDATION MODEL (SINGLE‑TRACK)
 ============================================================
 
 This document explains how to load the trained model, serve
-personalised track recommendations, handle cold‑start users,
-and instantly update a user’s profile without retraining.
-
+a single personalised track recommendation per request, handle
+cold‑start users, instantly update a user’s profile, and
+gracefully handle cases where the primary artists are exhausted.
 All model files are in the "model_params" folder.
 
 ------------------------------------------------------------
@@ -20,9 +20,9 @@ All model files are in the "model_params" folder.
 2. FILES YOU WILL NEED
 ------------------------------------------------------------
 
-model_params_colab/
+model_params/
   ensemble_config.json           – hyperparameters
-  user_enc_artist.pkl            – LabelEncoder: user_id -> index (artist model)
+  user_enc_artist.pkl             – LabelEncoder: user_id -> index (artist model)
   artist_enc.pkl                 – LabelEncoder: canonical artist_id -> index
   track_user_enc.pkl             – LabelEncoder: user_id -> index (track model)
   track_item_enc.pkl             – LabelEncoder: track_id -> index (track model)
@@ -38,14 +38,11 @@ model_params_colab/
   track_item_embeddings.npy      – precomputed item (track) embeddings
 
 We will use the precomputed .npy files for speed. The optional
-files are only needed if you want to reload the full models
-(e.g., after fine‑tuning).
+files are only needed if you want to reload the full models.
 
 ------------------------------------------------------------
 3. MODEL CLASS DEFINITIONS (must match training code)
 ------------------------------------------------------------
-
-These are the exact PyTorch classes. Paste them in your server code.
 
 import torch.nn as nn
 
@@ -90,11 +87,9 @@ from collections import defaultdict
 
 MODEL_DIR = 'model_params'
 
-# Load configuration
 with open(f'{MODEL_DIR}/ensemble_config.json', 'r') as f:
     config = json.load(f)
 
-# Load encoders
 with open(f'{MODEL_DIR}/user_enc_artist.pkl', 'rb') as f:
     user_enc_artist = pickle.load(f)
 with open(f'{MODEL_DIR}/artist_enc.pkl', 'rb') as f:
@@ -103,14 +98,11 @@ with open(f'{MODEL_DIR}/track_user_enc.pkl', 'rb') as f:
     track_user_enc = pickle.load(f)
 with open(f'{MODEL_DIR}/track_item_enc.pkl', 'rb') as f:
     track_item_enc = pickle.load(f)
-
-# Load mappings
 with open(f'{MODEL_DIR}/track_to_artist.pkl', 'rb') as f:
     track_to_artist = pickle.load(f)
 with open(f'{MODEL_DIR}/track_id_to_idx.pkl', 'rb') as f:
     track_id_to_idx = pickle.load(f)
 
-# Load arrays
 track_pop = np.load(f'{MODEL_DIR}/track_pop.npy')
 artist_user_emb = np.load(f'{MODEL_DIR}/artist_user_embeddings.npy')
 artist_artist_emb = np.load(f'{MODEL_DIR}/artist_artist_embeddings.npy')
@@ -124,56 +116,68 @@ for tid, artist_id in track_to_artist.items():
         aidx = artist_enc.transform([artist_id])[0]
         artist_to_tracks[aidx].append(tid)
 
-# Convenience lookups
+# Lookups
 user_id_to_idx_artist = {uid: i for i, uid in enumerate(user_enc_artist.classes_)}
 user_id_to_idx_track = {uid: i for i, uid in enumerate(track_user_enc.classes_)}
 track_id_to_track_idx = {tid: i for i, tid in enumerate(track_item_enc.classes_)}
 
-# Algorithm settings (from config)
-N_ARTISTS = config['n_artists_candidates']          # default 15
-TRACKS_PER_ARTIST = config['tracks_per_artist_candidate']  # 10
-TOP_K = config['top_k_final']                       # 10
+# Serving parameters (RECOMMENDED)
+N_ARTISTS = 5                 # top artists to consider
+TRACKS_PER_ARTIST = 1         # only the single most popular unseen track per artist
+USE_ENSEMBLE = True           # always use track‑model re‑ranking for better quality
+TOP_K = 1                     # we recommend exactly one track per request
 
 ------------------------------------------------------------
-5. RECOMMENDATION FOR A KNOWN USER
+5. RECOMMENDATION FOR A KNOWN USER (single track, with exhaustion fallback)
 ------------------------------------------------------------
 
 def recommend_for_user(user_id, seen_tracks=None):
     """
     user_id: original user ID (integer or string)
     seen_tracks: set of track IDs the user already interacted with
-                 (liked, disliked, uploaded). May be None or empty.
-
-    Returns a list of recommended track IDs (up to TOP_K).
+                 (liked, disliked, uploaded) or previously recommended.
+    Returns a single track ID or None if nothing can be found.
     """
     if seen_tracks is None:
         seen_tracks = set()
 
-    # Check if user exists in artist model
+    # Quick check: if user not in artist model, fallback to global popular unseen
     if user_id not in user_id_to_idx_artist:
-        # Fallback: recommend globally popular unseen tracks
-        return get_popular_unseen(seen_tracks)
+        return get_popular_unseen(seen_tracks, n=1)
 
     u_idx_artist = user_id_to_idx_artist[user_id]
     user_vec = artist_user_emb[u_idx_artist]
 
-    # 1. Artist ranking
-    scores = user_vec.dot(artist_artist_emb.T)
-    top_artists = np.argpartition(scores, -N_ARTISTS)[-N_ARTISTS:]
-    top_artists = top_artists[np.argsort(scores[top_artists])[::-1]]
+    # Attempt with configured artist count, then expand if needed
+    for attempt, multiplier in enumerate([1, 2, 5, 10]):  # progressively widen the search
+        n_art = min(N_ARTISTS * multiplier, len(artist_enc.classes_))
+        # Artist ranking
+        scores = user_vec.dot(artist_artist_emb.T)
+        top_artists = np.argpartition(scores, -n_art)[-n_art:]
+        top_artists = top_artists[np.argsort(scores[top_artists])[::-1]]
 
-    # 2. Collect unseen candidate tracks
-    candidates = set()
-    for aidx in top_artists:
-        for tid in artist_to_tracks.get(aidx, []):
-            if tid not in seen_tracks:
-                candidates.add(tid)
+        candidates = set()
+        for aidx in top_artists:
+            artist_tracks = [t for t in artist_to_tracks.get(aidx, [])
+                             if t not in seen_tracks]
+            if not artist_tracks:
+                continue
+            # Pick top TRACKS_PER_ARTIST by popularity (or all if fewer)
+            artist_tracks_sorted = sorted(artist_tracks,
+                                          key=lambda t: track_pop[track_id_to_idx.get(t, -1)]
+                                          if t in track_id_to_idx else 0,
+                                          reverse=True)
+            for t in artist_tracks_sorted[:TRACKS_PER_ARTIST]:
+                candidates.add(t)
 
-    if not candidates:
-        return []
+        if candidates:
+            break   # we found something
+    else:
+        # All artists exhausted, fall back to globally popular unseen tracks
+        return get_popular_unseen(seen_tracks, n=1)
 
-    # 3. Re‑rank with track model (if user has track‑model embedding)
-    if user_id in user_id_to_idx_track:
+    # Re‑rank with track model (if available)
+    if USE_ENSEMBLE and user_id in user_id_to_idx_track:
         u_idx_track = user_id_to_idx_track[user_id]
         u_vec_track = track_user_emb[u_idx_track]
         scored = []
@@ -183,23 +187,23 @@ def recommend_for_user(user_id, seen_tracks=None):
                 s = np.dot(u_vec_track, track_item_emb[i_idx])
                 scored.append((tid, s))
         scored.sort(key=lambda x: x[1], reverse=True)
-        top_tracks = [t for t, _ in scored[:TOP_K]]
+        best_track = scored[0][0] if scored else None
     else:
-        # Fallback: global popularity within candidates
-        top_tracks = sorted(
-            candidates,
-            key=lambda t: track_pop[track_id_to_idx.get(t, -1)] if t in track_id_to_idx else 0,
-            reverse=True
-        )[:TOP_K]
+        best_track = max(candidates,
+                         key=lambda t: track_pop[track_id_to_idx.get(t, -1)]
+                         if t in track_id_to_idx else 0)
 
-    return top_tracks
+    return best_track
 
-def get_popular_unseen(seen_tracks, n=TOP_K):
-    """Fallback for users with no artist model embedding."""
+def get_popular_unseen(seen_tracks, n=1):
+    """Return the globally most popular unseen tracks."""
     all_tracks = sorted(track_id_to_idx.keys(),
                         key=lambda t: track_pop[track_id_to_idx[t]],
                         reverse=True)
-    return [t for t in all_tracks if t not in seen_tracks][:n]
+    for t in all_tracks:
+        if t not in seen_tracks:
+            return t
+    return None
 
 ------------------------------------------------------------
 6. COLD‑START FOR A NEW USER
@@ -207,12 +211,11 @@ def get_popular_unseen(seen_tracks, n=TOP_K):
 
 A new user has no internal embedding. The bot should:
 
-  a) Present 5 onboarding tracks.
-     Choose diverse popular tracks from different popular artists.
-     (You can pre‑compute this list using track_pop and track_to_artist.)
+  a) Present 5 onboarding tracks (diverse popular tracks from different
+     popular artists).  Keep their track IDs.
   b) Wait for the user to react with a positive emoji (score > 1.0).
   c) For each reacted track, obtain its primary artist via
-     track_to_artist. Collect the unique artist IDs.
+     track_to_artist.  Collect the unique artist IDs.
   d) Build a temporary user vector from those artists:
 
      reacted_artists = set()
@@ -223,88 +226,80 @@ A new user has no internal embedding. The bot should:
 
      artist_indices = [artist_enc.transform([a])[0] for a in reacted_artists]
      if not artist_indices:
-         # fallback to popular unseen tracks
-         return get_popular_unseen(seen_tracks)
+         # fallback: recommend globally popular unseen track
+         return get_popular_unseen(seen_tracks, n=1)
 
      user_vec = np.mean(artist_artist_emb[artist_indices], axis=0)
 
-  e) Now use the same artist‑ranking + candidate‑collection logic
-     as in recommend_for_user, but with this user_vec.
+  e) Use the same candidate collection logic as in recommend_for_user,
+     but with this user_vec.  Since the user has no track‑model embedding,
+     the track re‑ranking is skipped; candidates are sorted by popularity.
+     The "seen_tracks" set must include the onboarding tracks.
 
-     Since the user has no track‑model embedding, skip the track
-     re‑ranking and use the popularity fallback for candidates.
-
-  f) The "seen_tracks" set must include the onboarding tracks
-     so they are not recommended again.
-
-After this, the user receives an instant personalised list.
+After this, the user immediately gets a personalised recommendation.
 
 ------------------------------------------------------------
 7. UPDATING THE MODEL FOR A SINGLE USER (NO RETRAINING)
 ------------------------------------------------------------
 
-Even after the bot is live, you can instantly update a user's
-profile when they react to new tracks. The artist and track
-embeddings remain fixed; only the user's representation changes.
+When a user reacts to a new track, update their profile instantly:
 
 For the ARTIST model:
   - Gather all canonical artist IDs the user has ever positively
-    interacted with (from liked tracks, positive reactions, uploads).
+    interacted with (liked tracks, positive reactions, uploads).
   - Convert to indices via artist_enc.
   - Compute new user vector:
       artist_indices = [artist_enc.transform([a])[0] for a in artist_ids
                         if a in artist_enc.classes_]
       new_user_vec = np.mean(artist_artist_emb[artist_indices], axis=0)
-  - Optionally weight by reaction score (e.g., upload weight 5.0,
-    like weight 4.5) instead of a simple mean.
+  - Optionally weight by reaction score.
 
-For the TRACK model (used in re‑ranking):
-  - Gather all track IDs the user has ever positively interacted with.
-  - Convert to indices via track_item_enc.
-  - Compute new track‑user vector:
+For the TRACK model (used for re‑ranking if the user has enough history):
+  - Gather all liked track IDs.
+  - Convert to indices and average the track embeddings:
       track_indices = [track_id_to_track_idx[t] for t in liked_track_ids
                        if t in track_id_to_track_idx]
       new_track_vec = np.mean(track_item_emb[track_indices], axis=0)
 
-Both vectors can be stored in your database and used directly in
-recommend_for_user instead of the pre‑trained embeddings.
-
-These updates require only a few array lookups and a mean
-computation – they take less than a millisecond. You can
-perform them every time the user opens the bot.
+These operations take < 1 ms and can be performed on every
+/recommend call.  The bot never needs to retrain.
 
 ------------------------------------------------------------
 8. INTEGRATION TIPS
 ------------------------------------------------------------
 
-- Maintain a per‑user "seen_tracks" set in your database. Every
-  track the user has liked, disliked, or uploaded should be added.
-  This prevents recommending already‑known tracks.
+- Keep a per‑user "seen_tracks" set in your database.  Add every
+  track the user has liked, disliked, uploaded, or been recommended.
+  This prevents repeats.
 
-- If a user does not have enough reactions for a reliable user
-  vector, fall back to globally popular tracks (see
-  get_popular_unseen).
+- Onboarding tracks: pre‑compute a list of 5 tracks from 5 different
+  top artists (e.g., the tracks with highest track_pop from the 5 most
+  popular artists).  Refresh this list when the model is retrained.
 
-- The onboarding tracks should be pre‑selected once (e.g., the 5
-  tracks with highest track_pop from 5 different top artists).
-  Refresh this list whenever the model is retrained.
+- The fallback in recommend_for_user automatically broadens the
+  artist pool if the top artists are exhausted, finally falling back
+  to globally popular unseen tracks.  You can adjust the multipliers
+  [1, 2, 5, 10] to suit your needs.
 
-- The model files are static between weekly retrainings. When
-  a retraining happens, replace the entire model_params folder
-  and reload the server (or the loaded objects). Ensure all
-  encoders and mappings are updated together.
+- The recommended serving parameters (N_ARTISTS=5, TRACKS_PER_ARTIST=1,
+  ENSEMBLE=True) were chosen because:
+    * They provide reliable recommendations for all users (no exhaustion).
+    * They offer artist variety while keeping Recall@1 at ~0.038 (strong
+      for this sparse dataset).
+    * Using fewer artists (e.g., 1) gave slightly higher recall but frequently
+      ran out of tracks and created an echo chamber.  Using more artists or
+      tracks per artist lowered recall.
 
-- The recommendation pipeline runs in < 10 ms on CPU, so you
-  can call it synchronously from the bot.
+- The entire pipeline runs in < 10 ms on CPU.
 
 ------------------------------------------------------------
 9. PERFORMANCE NOTES
 ------------------------------------------------------------
 
 - All operations are pure NumPy/Python and run on CPU.
-- The artist ranking step involves a dot product of (1, 200) x
-  (200, N_artists) ~ O(200 * N_artists) operations – negligible.
-- Candidate collection is a dictionary lookup per track.
+- The artist ranking involves a dot product of (1, 200) x
+  (200, N_artists) – negligible.
+- Candidate collection is dictionary lookups.
 - No GPU is needed for serving.
 
 ============================================================

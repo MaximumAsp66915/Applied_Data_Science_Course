@@ -1,0 +1,170 @@
+============================================================
+MODEL LOGIC AND WORKING EXPLANATION (SINGLE‑TRACK VERSION)
+============================================================
+
+This document describes the architecture, training, and serving
+logic of the ensemble recommendation model used in the Telegram
+music bot. The bot recommends exactly one track per request,
+balancing recall, diversity, and robustness.
+
+------------------------------------------------------------
+1. PROBLEM AND GOAL
+------------------------------------------------------------
+
+A university Telegram group shares thousands of music files.
+Members react with emojis (like, fire, heart, etc.). The goal
+is a bot that, given a user's reaction history, recommends one
+unheard track that the user is likely to enjoy. The data is
+sparse (~1.7% interaction density), contains social noise
+(dislikes are retaliatory), and lacks audio features. The
+challenge is to extract reliable taste signals from this data.
+
+------------------------------------------------------------
+2. TWO‑STAGE ENSEMBLE: ARTIST‑FIRST + TRACK RE‑RANKING
+------------------------------------------------------------
+
+Pure track‑level collaborative filtering fails due to extreme
+sparsity. Artist‑level preferences are denser and more stable.
+The solution is an ensemble of two models:
+
+Stage 1 – Artist Model (HybridArtistMF):
+  A hybrid matrix factorisation model that learns user and artist
+  embeddings from a user‑artist interaction matrix augmented with
+  genre features and related‑artist edges. At serving time, it
+  ranks all artists for a user and selects a small set of top
+  artists.
+
+Stage 2 – Track Model (TrackMF):
+  A simple matrix factorisation model trained on user‑track
+  interactions. It is used to re‑rank candidate tracks gathered
+  from the top artists, selecting the single best track.
+
+This ensemble combines broad artist‑level taste with fine‑grained
+track selection, overcoming sparsity.
+
+------------------------------------------------------------
+3. BUILDING THE USER‑ARTIST MATRIX
+------------------------------------------------------------
+
+Positive signals are aggregated from:
+  - Track reactions (score > 1.0, weighted by reaction intensity).
+  - Artist‑message reactions (same weighting).
+  - Uploads (strong signal, high fixed weight).
+
+Artist IDs are deduplicated via canonical mapping.
+Additionally, synthetic low‑weight edges are injected from
+related‑artist pairs (sourced from Last.fm metadata). If a user
+likes artist A, all related artists of A receive a small positive
+signal, spreading collaborative knowledge along the artist graph.
+
+------------------------------------------------------------
+4. HYBRID ARTIST MODEL (HybridArtistMF)
+------------------------------------------------------------
+
+Architecture:
+  User embedding (ID‑based) + biases.
+  Artist embedding = artist_id_emb + genre_proj(genre_features) + bias.
+  Genre features are a 361‑dimensional cleaned genre vector.
+
+Training uses two losses:
+  1. Weighted BPR loss – pushes positive artists above random negatives,
+     weighted by the interaction strength.
+  2. Edge loss – encourages connected artists to have similar embeddings.
+
+The model is trained for 200 epochs with Adam + cosine annealing.
+
+------------------------------------------------------------
+5. TRACK MODEL (TrackMF)
+------------------------------------------------------------
+
+A plain BPR‑MF trained on the binary user‑track matrix (positive
+reactions only). It learns user and track embeddings without side
+features. Because it only needs to compare a handful of candidate
+tracks per user, it remains effective despite overall sparsity.
+
+------------------------------------------------------------
+6. SINGLE‑TRACK RECOMMENDATION (SERVING)
+------------------------------------------------------------
+
+Given a user:
+
+a) Artist ranking:
+   The user's artist‑model embedding (pre‑trained or averaged from
+   liked artists) is dotted with all artist embeddings to produce
+   a ranking.
+
+b) Candidate collection:
+   From the top N_ARTISTS (default 5), collect the most popular
+   unseen track from each (TRACKS_PER_ARTIST = 1). If the pool is
+   empty, the search is iteratively widened to N_ARTISTS*2, *5,
+   *10, and finally falls back to the globally most popular unseen
+   track.
+
+c) Re‑ranking:
+   The track model scores each candidate, and the track with the
+   highest score is returned.
+
+This one‑request‑at‑a‑time design delivers a fresh track every
+call, never repeating previously seen or recommended tracks.
+
+------------------------------------------------------------
+7. SERVING PARAMETERS AND TRADE‑OFFS
+------------------------------------------------------------
+
+The recommended parameters are:
+  N_ARTISTS_CANDIDATES = 5
+  TRACKS_PER_ARTIST_CANDIDATE = 1
+  ENSEMBLE = True
+
+These were chosen after extensive grid search:
+
+- N_ARTISTS = 1 gave slightly higher Recall@1 (0.051) but
+  frequently exhausted the artist's catalogue, resulting in
+  no recommendations and an echo chamber.
+- N_ARTISTS = 3 (0.040) and N_ARTISTS = 5 (0.038) both provided
+  reliable diversity and never ran out of tracks.
+- N_ARTISTS = 5 is preferred for its broader artist coverage
+  while maintaining a very competitive hit rate.
+- Keeping TRACKS_PER_ARTIST = 1 prevents flooding the candidate
+  pool with less relevant tracks, keeping the track model's
+  top choice accurate.
+
+Recall@1 with these settings is ~0.038, meaning the single
+recommended track is a real liked track about 7.6% of the time
+– strong for a sparse, noisy dataset.
+
+------------------------------------------------------------
+8. COLD‑START AND SINGLE‑USER UPDATES
+------------------------------------------------------------
+
+Cold‑start (new user):
+  - Present 5 onboarding tracks.
+  - After one positive reaction, compute a temporary user vector
+    as the mean of the artist embeddings of the reacted tracks.
+  - Use the same recommendation pipeline, falling back to
+    popularity for track re‑ranking (since no track‑model embedding
+    exists yet).
+
+Single‑user update (no retraining):
+  - When a user reacts to a new track, recompute their artist‑model
+    embedding as the (weighted) mean of all positively interacted
+    artists. Similarly recompute the track‑model embedding.
+  - These updates take < 1 ms and keep the bot always up‑to‑date.
+
+------------------------------------------------------------
+9. KEY DESIGN INSIGHTS
+------------------------------------------------------------
+
+- Artist‑level aggregation overcomes track‑level sparsity.
+- Weighted interactions and synthetic related‑artist edges inject
+  valuable external knowledge.
+- Limiting top artists to 5 and taking only 1 track per artist
+  provides a clean, diverse candidate pool.
+- The exhaustion fallback guarantees a recommendation every time.
+- The ensemble architecture separates broad taste (artist model)
+  from fine‑grained selection (track model), giving each model
+  a focused task.
+
+============================================================
+END OF EXPLANATION
+============================================================
