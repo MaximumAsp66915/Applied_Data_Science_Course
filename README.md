@@ -162,13 +162,13 @@ SUT Music began as an Applied Data Science course project, built on top of a rea
 turning a genuinely messy, real-world dataset into a working product end to end: scraping, database design, data
 cleaning, model training, and a shipped user-facing app.
 
-<div align="center">
+We gladly welcome contributions! Whether it's feature enhancements, bug fixes, recommendation algorithm optimizations, or UI updates, feel free to open a Pull Request or reach out to discuss ideas.
 
-### 🔗 Links
+### 🔗 Project Links & Contact
 
-[![Telegram Group](https://img.shields.io/badge/Telegram%20Group-t.me%2FSharifMusic-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/SharifMusic)
-[![Telegram Bot](https://img.shields.io/badge/Telegram%20Bot-t.me%2FSUTMusic__Bot-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/SUTMusic_Bot)
-[![Mini App](https://img.shields.io/badge/Mini%20App-Launch-2CA5E0?style=flat-square&logo=telegram&logoColor=white)](https://t.me/SUTMusic_Bot?startapp)
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/MaximumAsp66915/Applied_Data_Science_Course)
-
-</div>
+| Category | Quick Links |
+| :--- | :--- |
+| **Telegram Ecosystem** | [![Telegram Group](https://img.shields.io/badge/Group-t.me%2FSharifMusic-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/SharifMusic) [![Telegram Bot](https://img.shields.io/badge/Bot-t.me%2FSUTMusic__Bot-26A5E4?style=flat-square&logo=telegram&logoColor=white)](https://t.me/SUTMusic_Bot) [![Mini App](https://img.shields.io/badge/Mini_App-Launch-2CA5E0?style=flat-square&logo=telegram&logoColor=white)](https://t.me/SUTMusic_Bot?startapp) |
+| **Interactive Demos** | [![Live Demo v1](https://img.shields.io/badge/Demo-v1_Web-2EA44F?style=flat-square&logo=googlechrome&logoColor=white)](https://maximumasp66915.github.io/Applied_Data_Science_Course/demo/v1/index.html) [![Demo Clip v1](https://img.shields.io/badge/Demo-v1_Clip-E10098?style=flat-square&logo=html5&logoColor=white)](https://maximumasp66915.github.io/Applied_Data_Science_Course/demo/v1/demo-clip.html) [![Live Demo v2](https://img.shields.io/badge/Demo-v2_Web-107C41?style=flat-square&logo=googlechrome&logoColor=white)](https://maximumasp66915.github.io/Applied_Data_Science_Course/demo/v2/index.html) [![Demo Clip v2](https://img.shields.io/badge/Demo-v2_Clip-FF0000?style=flat-square&logo=youtube&logoColor=white)](https://maximumasp66915.github.io/Applied_Data_Science_Course/demo/v2/demo-clip.html) |
+| **Documentation & Source** | [![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?style=flat-square&logo=github&logoColor=white)](https://github.com/MaximumAsp66915/Applied_Data_Science_Course) [![Notebooks](https://img.shields.io/badge/Docs-Jupyter_Notebooks-F37626?style=flat-square&logo=jupyter&logoColor=white)](https://github.com/MaximumAsp66915/Applied_Data_Science_Course/tree/project/notebooks) |
+| **Developer** | [![Email Developer](https://img.shields.io/badge/Developer-Mohammad.sabzalian83%40gmail.com-EA4335?style=flat-square&logo=gmail&logoColor=white)](mailto:Mohammad.sabzalian83@gmail.com) |
