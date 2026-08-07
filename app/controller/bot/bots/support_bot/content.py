@@ -89,15 +89,38 @@ _CACHE_TTL_SECONDS = 30 * 60
 _cache: dict[str, Any] = {"data": None, "fetched_at": 0.0}
 
 
-async def get_contributors_text() -> str:
-    if not settings.github_repo:
-        return (
-            "<b>Contributors</b>\n\n"
-            "The project's GitHub repository isn't configured yet on this "
-            "bot (<code>GITHUB_REPO</code> in .env), so contributors can't "
-            "be listed here. Ask the admin to set it -- see \"About this "
-            "bot\" to reach them."
-        )
+async def get_contributors_data() -> dict:
+    """Returns everything handlers.py needs to render the Contributors page
+    as a photo message:
+
+        {
+            "photo_url": str | None,     # GitHub's own repo social-preview image
+            "caption": str,                # HTML caption
+            "contributors": list[dict],     # [{"login", "url", "contributions"}, ...],
+                                              # already in GitHub's own order (most
+                                              # contributions first)
+            "repo_slug": str,
+        }
+    """
+    repo_slug = settings.repo_slug
+    if not repo_slug:
+        return {
+            "photo_url": None,
+            "caption": (
+                "<b>Contributors</b>\n\n"
+                "The project's GitHub repository isn't configured yet on "
+                "this bot (<code>GITHUB_REPO</code> in .env), so "
+                "contributors can't be listed here. Ask the admin to set "
+                "it -- see \"About this bot\" to reach them."
+            ),
+            "contributors": [],
+            "repo_slug": "",
+        }
+
+    # GitHub renders this social-preview card for every public repo (the
+    # same image you'd see pasting the repo link into a chat app) -- no
+    # auth, no extra API call needed for it.
+    photo_url = f"https://opengraph.githubassets.com/1/{repo_slug}"
 
     now = time.time()
     if _cache["data"] is None or (now - _cache["fetched_at"]) > _CACHE_TTL_SECONDS:
@@ -107,33 +130,42 @@ async def get_contributors_text() -> str:
         except Exception as exc:  # noqa: BLE001
             logger.warning("GitHub contributors fetch failed: %s", exc)
             if _cache["data"] is None:
-                return (
-                    "<b>Contributors</b>\n\n"
-                    "Couldn't reach GitHub right now -- please try again in "
-                    "a moment."
-                )
+                return {
+                    "photo_url": photo_url,
+                    "caption": (
+                        "<b>Contributors</b>\n\n"
+                        "Couldn't reach GitHub right now -- please try again "
+                        "in a moment."
+                    ),
+                    "contributors": [],
+                    "repo_slug": repo_slug,
+                }
             # fall through and show the last good cached list
 
-    contributors = _cache["data"] or []
-    if not contributors:
-        return "<b>Contributors</b>\n\nNo contributors found for this repository yet."
+    raw = _cache["data"] or []
+    contributors = [
+        {
+            "login": c.get("login", "unknown"),
+            "url": c.get("html_url", f"https://github.com/{c.get('login', '')}"),
+            "contributions": c.get("contributions", 0),
+        }
+        for c in raw
+    ]
 
-    lines = ["<b>Contributors</b>\n", f"To <code>{settings.github_repo}</code>:\n"]
-    for i, c in enumerate(contributors[:15], start=1):
-        login = c.get("login", "unknown")
-        url = c.get("html_url", f"https://github.com/{login}")
-        contributions = c.get("contributions", 0)
-        lines.append(f"{i}. <a href=\"{url}\">{login}</a> — {contributions} contributions")
+    if contributors:
+        caption = (
+            f"<b>Contributors</b>\n\n"
+            f"To <code>{repo_slug}</code> -- tap a name below to open their "
+            f"GitHub profile."
+        )
+    else:
+        caption = f"<b>Contributors</b>\n\nNo contributors found for <code>{repo_slug}</code> yet."
 
-    if len(contributors) > 15:
-        lines.append(f"\n…and {len(contributors) - 15} more.")
-    lines.append(f"\nFull list: {settings.github_url}/graphs/contributors")
-
-    return "\n".join(lines)
+    return {"photo_url": photo_url, "caption": caption, "contributors": contributors, "repo_slug": repo_slug}
 
 
 async def _fetch_contributors() -> list[dict[str, Any]]:
-    url = f"https://api.github.com/repos/{settings.github_repo}/contributors"
+    url = f"https://api.github.com/repos/{settings.repo_slug}/contributors"
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "SUTMusic-support-bot"}
     if settings.github_token:
         headers["Authorization"] = f"Bearer {settings.github_token}"

@@ -50,3 +50,27 @@ def search_results_kb(tracks: list[dict]) -> InlineKeyboardMarkup:
     kb.row(InlineKeyboardButton(text="🎧 Open Mini App", url=settings.mini_app_deeplink))
     kb.row(InlineKeyboardButton(text="⬅️ Back to menu", callback_data="menu:main"))
     return kb.as_markup()
+
+
+MAX_CONTRIBUTOR_BUTTONS = 15
+
+
+def contributors_kb(contributors: list[dict], repo_slug: str) -> InlineKeyboardMarkup:
+    """One button per contributor (GitHub already returns them ordered by
+    contribution count, most first -- see content.py::get_contributors_data),
+    each linking straight to that person's GitHub profile, followed by a
+    button to the repo's full contributors graph and a back-to-menu button.
+    """
+    kb = InlineKeyboardBuilder()
+    for i, c in enumerate(contributors[:MAX_CONTRIBUTOR_BUTTONS], start=1):
+        label = f"{i}. {c['login']} ({c['contributions']})"
+        kb.row(InlineKeyboardButton(text=label, url=c["url"]))
+    if repo_slug:
+        kb.row(
+            InlineKeyboardButton(
+                text="📜 Full contributors list",
+                url=f"https://github.com/{repo_slug}/graphs/contributors",
+            )
+        )
+    kb.row(InlineKeyboardButton(text="⬅️ Back to menu", callback_data="menu:main"))
+    return kb.as_markup()

@@ -12,6 +12,8 @@ one .env keeps configuring the whole stack.
 
 from pathlib import Path
 
+import re
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # .../app  (this file lives at app/controller/bot/bots/support_bot/config.py)
@@ -54,12 +56,13 @@ class SupportBotSettings(BaseSettings):
     bot_username: str = "SUTMusic_Bot"
 
     # --- Contributors / About -------------------------------------------
-    # "owner/repo" on GitHub, e.g. "your-org/sut-music". Powers both the
-    # "Contributors" menu (pulled live from GitHub's API -- never
-    # hand-maintained, so it can't go stale) and the repo link on the
-    # "About" page. Leave empty and both degrade gracefully with a note
-    # instead of erroring.
-    github_repo: str = "MaximumAsp66915/Applied_Data_Science_Course"
+    # "owner/repo" on GitHub, e.g. "your-org/sut-music" -- a full URL like
+    # "https://github.com/owner/repo" or "https://github.com/owner/repo/tree/branch"
+    # also works, it's normalized below. Powers both the "Contributors" menu
+    # (pulled live from GitHub's API -- never hand-maintained, so it can't
+    # go stale) and the repo link on the "About" page. Leave empty and both
+    # degrade gracefully with a note instead of erroring.
+    github_repo: str = ""
 
     # Optional: a GitHub personal access token (no special scopes needed --
     # public read access is enough). Unauthenticated GitHub API calls are
@@ -78,8 +81,25 @@ class SupportBotSettings(BaseSettings):
         return self.support_bot_token or self.bot_token
 
     @property
+    def repo_slug(self) -> str:
+        """`github_repo` normalized down to "owner/repo", however it was
+        entered -- a bare slug, a full https://github.com/owner/repo URL,
+        or one with a /tree/<branch> (or trailing slash) tacked on. The
+        GitHub contributors API only ever wants "owner/repo".
+        """
+        value = self.github_repo.strip()
+        if not value:
+            return ""
+        value = re.sub(r"^https?://github\.com/", "", value, flags=re.IGNORECASE)
+        value = value.strip("/")
+        parts = value.split("/")
+        if len(parts) < 2:
+            return ""
+        return f"{parts[0]}/{parts[1]}"
+
+    @property
     def github_url(self) -> str:
-        return f"https://github.com/{self.github_repo}" if self.github_repo else ""
+        return f"https://github.com/{self.repo_slug}" if self.repo_slug else ""
 
 
 settings = SupportBotSettings()

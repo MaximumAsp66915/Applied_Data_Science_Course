@@ -25,7 +25,7 @@ from aiogram.types import CallbackQuery, Message
 from . import content
 from .api_client import SearchUnavailable, search_tracks_and_artists
 from .config import settings
-from .keyboards import back_to_menu_kb, cancel_report_kb, main_menu_kb, search_results_kb
+from .keyboards import back_to_menu_kb, cancel_report_kb, contributors_kb, main_menu_kb, search_results_kb
 from .states import ReportStates
 
 logger = logging.getLogger(__name__)
@@ -97,8 +97,34 @@ async def cb_about(callback: CallbackQuery) -> None:
 @router.callback_query(F.data == "menu:contributors")
 async def cb_contributors(callback: CallbackQuery) -> None:
     await callback.answer()
-    text = await content.get_contributors_text()
-    await callback.message.edit_text(text, reply_markup=back_to_menu_kb(), disable_web_page_preview=True)
+    data = await content.get_contributors_data()
+    kb = contributors_kb(data["contributors"], data["repo_slug"])
+
+    # Contributors gets its own photo message (the repo's GitHub
+    # social-preview image above the caption) rather than an edit_text,
+    # since a text message can't be turned into a photo message in place.
+    # Sent first, old menu message only removed once this succeeds so we
+    # never lose the menu if the photo fetch fails.
+    sent = None
+    if data["photo_url"]:
+        try:
+            sent = await callback.message.answer_photo(
+                photo=data["photo_url"],
+                caption=data["caption"],
+                reply_markup=kb,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to send contributors preview photo: %s", exc)
+
+    if sent is None:
+        sent = await callback.message.answer(
+            data["caption"], reply_markup=kb, disable_web_page_preview=True
+        )
+
+    try:
+        await callback.message.delete()
+    except Exception:  # noqa: BLE001 - message may already be gone/too old, harmless
+        pass
 
 
 # ---------------------------------------------------------------------------
