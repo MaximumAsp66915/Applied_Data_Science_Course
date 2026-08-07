@@ -59,7 +59,7 @@ class SupportBotSettings(BaseSettings):
     # hand-maintained, so it can't go stale) and the repo link on the
     # "About" page. Leave empty and both degrade gracefully with a note
     # instead of erroring.
-    github_repo: str = "https://github.com/MaximumAsp66915/Applied_Data_Science_Course/tree/project"
+    github_repo: str = "MaximumAsp66915/Applied_Data_Science_Course"
 
     # Optional: a GitHub personal access token (no special scopes needed --
     # public read access is enough). Unauthenticated GitHub API calls are
