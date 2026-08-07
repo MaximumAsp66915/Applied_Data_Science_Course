@@ -1,0 +1,25 @@
+# ---------------------------------------------------------------------------
+# Recommendation engine (R&D) -- its own requirements file, installed into its
+# own venv, completely separate from app/requirements.txt. See README.md.
+#
+# Shorter than engine_v2's list by one entry, and that entry is the point:
+# scikit-learn is gone. engine_v2 needed it purely to unpickle four
+# LabelEncoder objects so it could read their `.classes_` integer arrays;
+# tools/build_params.py writes those arrays out as .npy at build time, so the
+# serving process now unpickles nothing at all and installs ~100 MB less.
+# ---------------------------------------------------------------------------
+
+# Serving
+fastapi==0.115.5
+uvicorn[standard]==0.32.0
+
+# Inference. Every scoring path is a dot product or a matmul over precomputed
+# embeddings -- no torch here either, same reasoning as v2: the .pt state
+# dicts are a build-time input (read without torch, see tools/torch_pickle.py),
+# never a serving-time one.
+numpy==1.26.4
+
+# ---------------------------------------------------------------------------
+# Development only -- not installed on the server by deploy/start.sh.
+#   pip install pytest
+# ---------------------------------------------------------------------------

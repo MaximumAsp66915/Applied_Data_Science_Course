@@ -1,0 +1,11 @@
+# The serving bundle is generated from engine_v2/model_params by
+# tools/build_params.py -- see model_params/README.md. It is ~11 MB of arrays
+# the repository already stores once; a second copy in git buys nothing.
+model_params/*.npy
+model_params/bundle.json
+
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+engine.log
