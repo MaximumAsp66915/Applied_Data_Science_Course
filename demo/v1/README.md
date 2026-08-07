@@ -1,16 +1,36 @@
-# SUT Music — Phone Preview Demo
+# SUT Music — Demo (v1)
 
-This folder is a static HTML/Tailwind mockup of the SUT Music app, shown inside
-a fake iPhone frame. There is no backend and no real audio playback — track
-art, names, waveforms, and stats are all hardcoded in the HTML.
+### 🔗 Links
+
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?style=flat-square&logo=github&logoColor=orange)](https://github.com/MaximumAsp66915/Applied_Data_Science_Course)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-v1-107C41?style=flat-square&logo=googlechrome&logoColor=white)](https://maximumasp66915.github.io/Applied_Data_Science_Course/demo/v1/index.html)
+[![Video Clip](https://img.shields.io/badge/Demo-Video_Clip-E10098?style=flat-square&logo=html5&logoColor=white)](https://maximumasp66915.github.io/Applied_Data_Science_Course/demo/v1/demo-clip.html)
+
+The original static HTML/Tailwind mockup of the SUT Music app, shown inside a
+fake iPhone frame. There is no backend and no real audio playback — track
+art, names, waveforms, and stats are all hardcoded directly in the HTML.
+
+This is the **single-device** version: everything is built around one fixed
+iPhone frame (no device picker). See [`../v2/README.md`](../v2/README.md) for
+the newer multi-device version.
 
 ## Files
 
-- `index.html` — static phone-frame preview, loads one screen at a time in an iframe.
-- `ai_studio_code.html` — the animated "cinematic demo" that auto-cycles through all screens with a floating camera and on-screen controls.
-- `pages/demo-home.html`, `pages/demo-song.html`, `pages/demo-song-details.html`, `pages/demo-artist.html`,
-  `pages/demo-ranks.html`, `pages/demo-search.html`, `pages/demo-profile.html`, `pages/demo-suggest.html`,
-  `pages/demo-latest.html` — the individual app screens.
+- `index.html` — a static grid showing **every** screen at once, each inside
+  its own small iPhone frame (Home, Latest, Ranks, Search, Now Playing, Song
+  Details, Artist, Suggest, Profile) — good for a single at-a-glance overview
+  of the whole app.
+- `demo-clip.html` — the "cinematic demo": one iPhone floats in 3D space and
+  auto-cycles through every screen on its own, with a floating camera,
+  captions, a progress bar, step dots, and on-screen playback controls
+  (previous / pause / mute / next). Good for a hands-off, sit-back-and-watch
+  presentation. All of the phone chrome, camera-move logic, and styling for
+  this lives directly inside this one file — there's no separate `device/`
+  folder in v1.
+- `pages/demo-home.html`, `pages/demo-song.html`, `pages/demo-song-details.html`,
+  `pages/demo-artist.html`, `pages/demo-ranks.html`, `pages/demo-search.html`,
+  `pages/demo-profile.html`, `pages/demo-suggest.html`, `pages/demo-latest.html`
+  — the individual app screens.
 
 ## Changing tracks, artists, and cover art
 
@@ -21,8 +41,8 @@ track/artist often appears on more than one screen, so update all of them to
 keep things consistent. For example "Midnight City" / "M83" currently appears
 in:
 
-- `demo-song.html`
-- `demo-song-details.html`
+- `pages/demo-song.html`
+- `pages/demo-song-details.html`
 
 **Cover art / avatars** are just `<img src="...">` tags pointing to image URLs, e.g.:
 
@@ -33,7 +53,7 @@ in:
 Replace the `src` with a link to your own image (or a local file path like
 `images/my-cover.jpg` if you add an `images/` folder next to these HTML files).
 
-**Track title / artist name** are plain text, e.g. in `demo-song.html`:
+**Track title / artist name** are plain text, e.g. in `pages/demo-song.html`:
 
 ```html
 <h1 class="font-display text-xl text-paper leading-tight">Midnight City</h1>
@@ -57,7 +77,7 @@ None of the screens currently play real audio — the player UI (play/pause,
 waveform, progress) is visual only. To wire up a real song:
 
 1. Add your audio file next to the HTML files, e.g. `audio/midnight-city.mp3`.
-2. In the screen that should play it (typically `demo-song.html`), add an
+2. In the screen that should play it (typically `pages/demo-song.html`), add an
    `<audio>` element, for example right after the opening `<body>` tag:
 
    ```html
@@ -81,13 +101,13 @@ This is the minimum to get sound playing; syncing the waveform/progress bar to
 actual playback position would need additional script (using `audio.currentTime`
 and `audio.duration`).
 
-The **ai_studio cinematic demo** (`ai_studio_code.html`) has its own separate,
-fully synthetic background music generated in-browser with the Web Audio API
-(no file involved) — see the `Generated ambient background music` section
+The **cinematic demo** (`demo-clip.html`) has its own separate, fully
+synthetic background music generated in-browser with the Web Audio API (no
+file involved) — see the "Generated ambient background music" comment/section
 near the bottom of that file's `<script>`. That's independent from any real
 song file you add to the individual screens.
 
-## The AI Studio cinematic demo (`ai_studio_code.html`)
+## The cinematic demo (`demo-clip.html`)
 
 This file shows the fake iPhone floating in 3D space, auto-cycling through
 every screen with a caption and progress bar, plus playback controls
@@ -100,8 +120,8 @@ screen shown during the demo:
 
 ```js
 const sequence = [
-  { url: 'pages/demo-home.html',         label: 'Home Feed',        cam: 'rotateY(0deg) rotateX(0deg) scale(1)',      stageT: 'translateZ(0px)' },
-  { url: 'pages/demo-suggest.html',      label: 'AI Suggestions',   cam: 'rotateY(-12deg) rotateX(4deg) scale(1.06)', stageT: 'translateX(40px) translateZ(60px)' },
+  { url: 'pages/demo-home.html',    label: 'Home Feed',      cam: 'rotateY(0deg) rotateX(0deg) scale(1)',      stageT: 'translateZ(0px)' },
+  { url: 'pages/demo-suggest.html', label: 'AI Suggestions', cam: 'rotateY(-12deg) rotateX(4deg) scale(1.06)', stageT: 'translateX(40px) translateZ(60px)' },
   ...
 ];
 ```
@@ -129,7 +149,7 @@ auto-advancing to the next one. `4000` = 4 seconds. Increase it to slow the
 demo down, decrease it to speed it up. This single value controls the timing
 for every screen in the sequence.
 
-The transition itself (how long the crossfade/camera move animation takes) is
+The transition itself (how long the crossfade/camera-move animation takes) is
 controlled separately by the `transition` durations in the `<style>` block —
 search for `transition: transform 1.1s` (camera/stage movement) and
 `transition: opacity 0.45s` (screen crossfade) if you want to adjust those too.
@@ -152,7 +172,10 @@ Increase `bottom` to move the controls up, decrease it to move them down.
 
 ## Known quirks
 
-- These are static demo files meant to be viewed as flat HTML (opened directly
-  or via a simple local server) — they don't require a build step.
+- These are static demo files meant to be viewed as flat HTML (opened
+  directly or via a simple local server) — they don't require a build step.
 - Because there's no shared data source, any change to a track/artist/image
   needs to be repeated in every screen file that references it.
+- v1 only shows an iPhone — there's no device switcher. If you need to
+  preview the app on other screen shapes/ratios (Android, foldables, a
+  laptop), use [v2](../v2/README.md) instead.

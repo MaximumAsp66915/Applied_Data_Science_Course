@@ -2,13 +2,20 @@
 
 # 🎵 SUT Music
 
-**From a chaotic, meme-filled Telegram group to a full data platform —**
-**a 24-table database, a recommendation engine, and a Telegram Mini App, built on top of it.**
+**From a chaotic, meme-filled Telegram group to a full data platform —**<br>
+*A 24-table database, a recommendation engine, and a Telegram Mini App.*
 
-[![Telegram Group](https://img.shields.io/badge/Telegram-Join%20SUT%20Music-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/SharifMusic)
-[![Telegram Bot](https://img.shields.io/badge/Telegram-Open%20the%20Bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/SUTMusic_Bot)
-[![Mini App](https://img.shields.io/badge/Telegram-Launch%20the%20Mini%20App-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/SUTMusic_Bot?startapp)
+<br>
+
+<!-- App & Community Links -->
+[![Telegram Group](https://img.shields.io/badge/Telegram-Join_Group-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/SharifMusic)
+[![Telegram Bot](https://img.shields.io/badge/Telegram-Open_Bot-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/SUTMusic_Bot)
+[![Mini App](https://img.shields.io/badge/Mini_App-Launch_App-0088CC?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/SUTMusic_Bot?startapp)
+
+<!-- Code & Demo Links -->
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Repository-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/MaximumAsp66915/Applied_Data_Science_Course)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-v1-2EA44F?style=for-the-badge&logo=googlechrome&logoColor=white)](https://maximumasp66915.github.io/Applied_Data_Science_Course/demo/v1/index.html)
+[![Demo Clip](https://img.shields.io/badge/Demo-Video_Clip-E10098?style=for-the-badge&logo=html5&logoColor=white)](https://maximumasp66915.github.io/Applied_Data_Science_Course/demo/v1/demo-clip.html)
 
 </div>
 
