@@ -1,10 +1,10 @@
 {
   "artist_embedding_dim": 200,
   "track_embedding_dim": 100,
-  "n_users_artist": 1285,
-  "n_artists": 4919,
-  "genre_dim": 361,
-  "n_artists_candidates": 15,
+  "n_users_artist": 1310,
+  "n_artists": 5107,
+  "genre_dim": 373,
+  "n_artists_candidates": 20,
   "tracks_per_artist_candidate": 10,
   "top_k_final": 10
 }
