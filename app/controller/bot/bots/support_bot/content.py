@@ -129,7 +129,7 @@ async def get_contributors_data() -> dict:
     # here would do the opposite (Telegram would cache *that exact URL*
     # forever), so a fresh timestamp is used on every request instead --
     # whatever's currently set as the repo's social preview always shows.
-    photo_url = f"https://opengraph.githubassets.com/{int(time.time())}/{repo_slug}"
+    photo_url = f"https://github.com/{repo_slug}"
 
     now = time.time()
     if _cache["data"] is None or (now - _cache["fetched_at"]) > _CACHE_TTL_SECONDS:
