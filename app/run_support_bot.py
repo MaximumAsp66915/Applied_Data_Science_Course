@@ -18,6 +18,8 @@ Run from the project root, exactly like main.py:
 
 import asyncio
 import logging
+import sys
+import traceback
 
 from dotenv import load_dotenv
 
@@ -31,11 +33,27 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    # force=True: if anything imported above (dotenv, aiogram, etc.) already
+    # attached a handler to the root logger, a plain basicConfig() call
+    # silently becomes a no-op -- level/format get set up, nothing ever
+    # prints, and every logger.info() call in bot.py/handlers.py (including
+    # the "support bot starting" line) just vanishes with no error at all.
+    # force=True guarantees this config actually takes effect. Needs
+    # Python 3.8+.
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    print("run_support_bot.py: starting up...", flush=True)
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         logging.getLogger(__name__).info("Support bot stopped (KeyboardInterrupt).")
+    except BaseException:
+        # Last-resort net: print()+flush bypasses logging entirely, so even
+        # if logging is somehow still misconfigured (or stdout/stderr are
+        # being redirected in a way that swallows one but not the other),
+        # a crash here can never be completely silent again.
+        print("run_support_bot.py: crashed with an unhandled exception:", flush=True)
+        traceback.print_exc()
+        sys.exit(1)
