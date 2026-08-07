@@ -120,7 +120,7 @@ async def get_contributors_data() -> dict:
     # GitHub renders this social-preview card for every public repo (the
     # same image you'd see pasting the repo link into a chat app) -- no
     # auth, no extra API call needed for it.
-    photo_url = f"https://opengraph.githubassets.com/1/{repo_slug}"
+    photo_url = f"https://github.com/{repo_slug}"
 
     now = time.time()
     if _cache["data"] is None or (now - _cache["fetched_at"]) > _CACHE_TTL_SECONDS:

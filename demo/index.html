@@ -5,31 +5,263 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>SUT Music — Preview</title>
 <style>
-  html, body {
+  :root {
+    --bg-1: #0E0C15;
+    --bg-2: #17131F;
+  }
+  * { box-sizing: border-box; }
+  body {
     margin: 0;
+    font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: radial-gradient(circle at 50% 0%, var(--bg-2), var(--bg-1) 65%);
+    color: #F4F1FA;
+    min-height: 100vh;
+    padding: 48px 24px 80px;
+  }
+  h1 {
+    text-align: center;
+    font-size: 15px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #9891B0;
+    font-weight: 700;
+    margin: 0 0 48px;
+  }
+  .grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 64px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .label {
+    font-size: 13px;
+    color: #9891B0;
+    font-weight: 600;
+  }
+
+  /* iPhone 15/16 Pro Max — real ratio 77.6mm x 163mm, screen 430x932pt */
+  .phone {
+    width: 387px;
+    height: 812px;
+    background: #050505;
+    border-radius: 64px;
+    padding: 12px;
+    position: relative;
+    box-shadow:
+      inset 0 0 0 2px #3a3a3a,
+      inset 0 0 0 5px #050505,
+      0 30px 60px -20px rgba(0,0,0,0.7),
+      0 10px 24px -10px rgba(0,0,0,0.6);
+  }
+
+  /* side buttons */
+  .btn { position: absolute; background: #050505; border: 1px solid #2c2c2c; }
+  .btn-mute {
+    left: -3px; top: 168px; width: 4px; height: 32px; border-radius: 2px 0 0 2px;
+  }
+  .btn-vol-up {
+    left: -3px; top: 224px; width: 4px; height: 56px; border-radius: 2px 0 0 2px;
+  }
+  .btn-vol-down {
+    left: -3px; top: 292px; width: 4px; height: 56px; border-radius: 2px 0 0 2px;
+  }
+  .btn-power {
+    right: -3px; top: 240px; width: 4px; height: 84px; border-radius: 0 2px 2px 0;
+  }
+
+  .screen {
     width: 100%;
     height: 100%;
+    border-radius: 52px;
     overflow: hidden;
-    background: #0E0C15;
-    font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+    position: relative;
+    background: #14121C;
   }
 
-  body {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  /* Dynamic island */
+  .island {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 108px;
+    height: 32px;
+    background: #000;
+    border-radius: 18px;
+    z-index: 10;
   }
 
-  iframe {
-    width: 100vw;
-    height: 100vh;
+  /* content sits below the island so the app UI is never covered */
+  .content {
+    position: absolute;
+    top: 58px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+  }
+  .content iframe {
+    width: 100%;
+    height: calc(100% + 58px);
+    margin-top: -58px;
     border: 0;
     display: block;
-    background: #0E0C15;
+  }
+
+  /* home indicator bar */
+  .home-indicator {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 134px;
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(244,241,250,0.35);
+    z-index: 10;
   }
 </style>
 </head>
 <body>
-  <iframe src="device/index.html?device=iphone-17-pro-max&page=../pages/demo-home.html"></iframe>
+
+<h1>SUT Music — Screen Previews</h1>
+
+<div class="grid">
+  <div class="item">
+    <div class="phone">
+      <div class="btn btn-mute"></div>
+      <div class="btn btn-vol-up"></div>
+      <div class="btn btn-vol-down"></div>
+      <div class="btn btn-power"></div>
+      <div class="screen">
+        <div class="island"></div>
+        <div class="content"><iframe src="pages/demo-home.html"></iframe></div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <span class="label">Home</span>
+  </div>
+  <div class="item">
+    <div class="phone">
+      <div class="btn btn-mute"></div>
+      <div class="btn btn-vol-up"></div>
+      <div class="btn btn-vol-down"></div>
+      <div class="btn btn-power"></div>
+      <div class="screen">
+        <div class="island"></div>
+        <div class="content"><iframe src="pages/demo-latest.html"></iframe></div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <span class="label">Latest</span>
+  </div>
+  <div class="item">
+    <div class="phone">
+      <div class="btn btn-mute"></div>
+      <div class="btn btn-vol-up"></div>
+      <div class="btn btn-vol-down"></div>
+      <div class="btn btn-power"></div>
+      <div class="screen">
+        <div class="island"></div>
+        <div class="content"><iframe src="pages/demo-ranks.html"></iframe></div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <span class="label">Ranks</span>
+  </div>
+  <div class="item">
+    <div class="phone">
+      <div class="btn btn-mute"></div>
+      <div class="btn btn-vol-up"></div>
+      <div class="btn btn-vol-down"></div>
+      <div class="btn btn-power"></div>
+      <div class="screen">
+        <div class="island"></div>
+        <div class="content"><iframe src="pages/demo-search.html"></iframe></div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <span class="label">Search</span>
+  </div>
+  <div class="item">
+    <div class="phone">
+      <div class="btn btn-mute"></div>
+      <div class="btn btn-vol-up"></div>
+      <div class="btn btn-vol-down"></div>
+      <div class="btn btn-power"></div>
+      <div class="screen">
+        <div class="island"></div>
+        <div class="content"><iframe src="pages/demo-song.html"></iframe></div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <span class="label">Now Playing</span>
+  </div>
+  <div class="item">
+    <div class="phone">
+      <div class="btn btn-mute"></div>
+      <div class="btn btn-vol-up"></div>
+      <div class="btn btn-vol-down"></div>
+      <div class="btn btn-power"></div>
+      <div class="screen">
+        <div class="island"></div>
+        <div class="content"><iframe src="pages/demo-song-details.html"></iframe></div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <span class="label">Song Details</span>
+  </div>
+  <div class="item">
+    <div class="phone">
+      <div class="btn btn-mute"></div>
+      <div class="btn btn-vol-up"></div>
+      <div class="btn btn-vol-down"></div>
+      <div class="btn btn-power"></div>
+      <div class="screen">
+        <div class="island"></div>
+        <div class="content"><iframe src="pages/demo-artist.html"></iframe></div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <span class="label">Artist</span>
+  </div>
+  <div class="item">
+    <div class="phone">
+      <div class="btn btn-mute"></div>
+      <div class="btn btn-vol-up"></div>
+      <div class="btn btn-vol-down"></div>
+      <div class="btn btn-power"></div>
+      <div class="screen">
+        <div class="island"></div>
+        <div class="content"><iframe src="pages/demo-suggest.html"></iframe></div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <span class="label">Suggest</span>
+  </div>
+  <div class="item">
+    <div class="phone">
+      <div class="btn btn-mute"></div>
+      <div class="btn btn-vol-up"></div>
+      <div class="btn btn-vol-down"></div>
+      <div class="btn btn-power"></div>
+      <div class="screen">
+        <div class="island"></div>
+        <div class="content"><iframe src="pages/demo-profile.html"></iframe></div>
+        <div class="home-indicator"></div>
+      </div>
+    </div>
+    <span class="label">Profile</span>
+  </div>
+</div>
+
 </body>
 </html>

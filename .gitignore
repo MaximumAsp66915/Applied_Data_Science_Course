@@ -20,6 +20,3 @@ app/db/sqlite_db/
 .idea/
 app/frontend/dist/
 app/frontend/node_modules/
-
-#temp
-demo/

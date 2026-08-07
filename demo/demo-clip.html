@@ -4,32 +4,506 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>SUT Music — Demo</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&display=swap" rel="stylesheet" />
 <style>
+  :root {
+    --bg-1: #0E0C15;
+    --bg-2: #17131F;
+    --accent: #7C5CFC;
+    --muted: #9891B0;
+  }
+  * { box-sizing: border-box; }
   html, body {
     margin: 0;
-    width: 100%;
     height: 100%;
+    width: 100%;
     overflow: hidden;
-    background: #0E0C15;
+    background: radial-gradient(circle at 50% 40%, var(--bg-2), var(--bg-1) 70%);
+    color: #F4F1FA;
     font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
   }
 
-  body {
+  .bg-glow {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    width: 100vw;
+    height: 100vh;
+    background: radial-gradient(circle at 50% 50%, rgba(124, 92, 252, 0.16), transparent 60%);
+    transform: translate(-50%, -50%);
+    z-index: 0;
+    animation: pulse 8s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.5; transform: translate(-50%, -50%) scale(1); }
+    50% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); }
+  }
+
+  #stage {
+    position: relative;
+    z-index: 1;
+    perspective: 2000px;
+    width: 100%;
+    height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
+    padding-top: 10px;
+    padding-bottom: 140px;
+    transition: transform 1.1s cubic-bezier(0.22, 1, 0.36, 1);
   }
 
+  /* Phone — same real-world ratio + hardware details as the static preview */
+  .iphone {
+    width: 387px;
+    height: 812px;
+    background: #050505;
+    border-radius: 64px;
+    padding: 12px;
+    position: relative;
+    box-shadow:
+      inset 0 0 0 2px #3a3a3a,
+      inset 0 0 0 5px #050505,
+      0 40px 90px -20px rgba(0,0,0,0.75),
+      0 20px 40px -20px rgba(0,0,0,0.6);
+    transform-style: preserve-3d;
+    transition: transform 1.1s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .btn { position: absolute; background: #050505; border: 1px solid #2c2c2c; }
+  .btn-mute    { left: -3px; top: 168px; width: 4px; height: 32px; border-radius: 2px 0 0 2px; }
+  .btn-vol-up  { left: -3px; top: 224px; width: 4px; height: 56px; border-radius: 2px 0 0 2px; }
+  .btn-vol-down{ left: -3px; top: 292px; width: 4px; height: 56px; border-radius: 2px 0 0 2px; }
+  .btn-power   { right: -3px; top: 240px; width: 4px; height: 84px; border-radius: 0 2px 2px 0; }
+
+  .screen-container {
+    width: 100%;
+    height: 100%;
+    border-radius: 52px;
+    background: #14121C;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .island {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 108px;
+    height: 32px;
+    background: #000;
+    border-radius: 18px;
+    z-index: 50;
+  }
+
+  /* content clipped to sit below the island, same technique as the static preview */
+  .content-mask {
+    position: absolute;
+    top: 58px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+  }
   iframe {
-    width: 100vw;
-    height: 100vh;
-    border: 0;
+    width: 100%;
+    height: calc(100% + 58px);
+    margin-top: -58px;
+    border: none;
     display: block;
-    background: #0E0C15;
+    transition: opacity 0.45s ease;
+  }
+
+  .home-indicator {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 134px;
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(244,241,250,0.35);
+    z-index: 50;
+  }
+
+  /* HUD */
+  .hud {
+    position: fixed;
+    bottom: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+    z-index: 100;
+    width: 320px;
+  }
+
+  .caption {
+    font-size: 13px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 700;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: all 0.45s ease;
+    text-align: center;
+  }
+  .caption.active { opacity: 1; transform: translateY(0); }
+
+  .progress-track {
+    width: 100%;
+    height: 3px;
+    border-radius: 3px;
+    background: rgba(244,241,250,0.12);
+    overflow: hidden;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .progress-track.visible { opacity: 1; }
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent), #A78BFA);
+    border-radius: 3px;
+  }
+  .progress-fill.animate {
+    transition: width 4s linear;
+  }
+
+  .controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.15s ease, background 0.15s ease;
+    color: #F4F1FA;
+  }
+  .icon-btn:hover { background: rgba(255,255,255,0.12); }
+  .icon-btn:active { transform: scale(0.92); }
+  .icon-btn svg { width: 16px; height: 16px; }
+
+  .start-btn {
+    background: var(--accent);
+    color: white;
+    border: none;
+    padding: 13px 34px;
+    border-radius: 100px;
+    font-weight: 800;
+    font-size: 13px;
+    letter-spacing: 0.06em;
+    box-shadow: 0 10px 24px rgba(124, 92, 252, 0.35);
+    cursor: pointer;
+    transition: transform 0.2s ease, background 0.2s ease;
+    font-family: inherit;
+  }
+  .start-btn:hover { transform: scale(1.04); background: #8e73ff; }
+  .start-btn:active { transform: scale(0.98); }
+
+  #start-ui {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .hint {
+    font-size: 11px;
+    color: var(--muted);
+    opacity: 0.8;
+  }
+
+  .step-dots {
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .step-dots.visible { opacity: 1; }
+  .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: rgba(244,241,250,0.25);
+    transition: background 0.3s ease, transform 0.3s ease;
+  }
+  .dot.done { background: var(--accent); }
+  .dot.current { background: #F4F1FA; transform: scale(1.3); }
+
+  .top-label {
+    position: fixed;
+    top: 28px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 700;
+    z-index: 100;
   }
 </style>
 </head>
 <body>
-  <iframe src="device/iphone-preview.html?device=iphone-17-pro-max&page=../pages/demo-home.html"></iframe>
+
+<div class="bg-glow"></div>
+<div class="top-label">SUT Music — Demo</div>
+
+<div id="stage">
+  <div class="iphone" id="phone">
+    <div class="btn btn-mute"></div>
+    <div class="btn btn-vol-up"></div>
+    <div class="btn btn-vol-down"></div>
+    <div class="btn btn-power"></div>
+    <div class="screen-container">
+      <div class="island"></div>
+      <div class="content-mask">
+        <iframe id="app-frame" src="pages/demo-home.html"></iframe>
+      </div>
+      <div class="home-indicator"></div>
+    </div>
+  </div>
+</div>
+
+<div class="hud">
+  <div id="caption" class="caption">SUT Music Experience</div>
+
+  <div class="progress-track" id="progressTrack">
+    <div class="progress-fill" id="progressFill"></div>
+  </div>
+
+  <div class="step-dots" id="stepDots"></div>
+
+  <div id="start-ui">
+    <button class="start-btn" id="startBtn">▶ Start demo</button>
+    <span class="hint">Includes background music — unmutes on start</span>
+  </div>
+
+  <div class="controls" id="runningControls" style="display:none">
+    <button class="icon-btn" id="prevBtn" title="Previous screen" aria-label="Previous">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" x2="5" y1="19" y2="5"/></svg>
+    </button>
+    <button class="icon-btn" id="pauseBtn" title="Pause" aria-label="Pause">
+      <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+    </button>
+    <button class="icon-btn" id="muteBtn" title="Mute music" aria-label="Mute">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+    </button>
+    <button class="icon-btn" id="nextBtn" title="Next screen" aria-label="Next">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" x2="19" y1="5" y2="19"/></svg>
+    </button>
+  </div>
+</div>
+
+<!--
+  Background music: generated locally in the browser with the Web Audio API
+  (a soft ambient pad + gentle pulse), so there's no external audio file to
+  break or license. Browsers block audio with sound until a user gesture,
+  which is why it starts on the Start button click.
+-->
+<script>
+  const frame = document.getElementById('app-frame');
+  const phone = document.getElementById('phone');
+  const stage = document.getElementById('stage');
+  const caption = document.getElementById('caption');
+  const startUI = document.getElementById('start-ui');
+  const startBtn = document.getElementById('startBtn');
+  const runningControls = document.getElementById('runningControls');
+  const pauseBtn = document.getElementById('pauseBtn');
+  const muteBtn = document.getElementById('muteBtn');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const progressTrack = document.getElementById('progressTrack');
+  const progressFill = document.getElementById('progressFill');
+  const stepDotsEl = document.getElementById('stepDots');
+
+  const STEP_MS = 4000;
+
+  const sequence = [
+    { url: 'pages/demo-home.html',      label: 'Home Feed',        cam: 'rotateY(0deg) rotateX(0deg) scale(1)',              stageT: 'translateZ(0px)' },
+    { url: 'pages/demo-suggest.html',      label: 'AI Suggestions',   cam: 'rotateY(-12deg) rotateX(4deg) scale(1.06)',         stageT: 'translateX(40px) translateZ(60px)' },
+    { url: 'pages/demo-song.html',         label: 'Now Playing',      cam: 'rotateY(12deg) rotateX(-4deg) scale(1.04)',         stageT: 'translateX(-40px) translateZ(30px)' },
+    { url: 'pages/demo-song-details.html', label: 'Track Analytics',  cam: 'rotateY(0deg) rotateX(10deg) scale(1.06)',          stageT: 'translateY(-60px) translateZ(80px)' },
+    { url: 'pages/demo-artist.html',       label: 'Artist Profiles',  cam: 'rotateY(-8deg) rotateX(-3deg) scale(1)',            stageT: 'translateX(20px) translateZ(0px)' },
+    { url: 'pages/demo-ranks.html',        label: 'Global Rankings',  cam: 'rotateY(8deg) rotateX(3deg) scale(1.06)',           stageT: 'translateX(-20px) translateZ(60px)' },
+    { url: 'pages/demo-search.html',       label: 'Smart Search',     cam: 'rotateY(0deg) rotateX(0deg) scale(1.1)',            stageT: 'translateZ(110px)' },
+    { url: 'pages/demo-profile.html',      label: 'User Progression', cam: 'rotateY(0deg) rotateX(0deg) scale(1)',              stageT: 'translateZ(0px)' }
+  ];
+
+  let step = 0;
+  let timer = null;
+  let paused = false;
+  let running = false;
+
+  // Build step dots
+  sequence.forEach(() => {
+    const d = document.createElement('div');
+    d.className = 'dot';
+    stepDotsEl.appendChild(d);
+  });
+  const dots = Array.from(stepDotsEl.children);
+
+  function renderDots() {
+    dots.forEach((d, i) => {
+      d.classList.toggle('current', i === step);
+      d.classList.toggle('done', i !== step && wasVisited(i));
+    });
+  }
+  const visited = new Set();
+  function wasVisited(i) { return visited.has(i); }
+
+  function goTo(newStep, restartTimer = true) {
+    visited.add(step);
+    step = ((newStep % sequence.length) + sequence.length) % sequence.length;
+    const data = sequence[step];
+
+    frame.style.opacity = '0';
+    caption.classList.remove('active');
+    progressFill.classList.remove('animate');
+    progressFill.style.width = '0%';
+
+    setTimeout(() => {
+      frame.src = data.url;
+      caption.innerText = data.label;
+      phone.style.transform = data.cam;
+      stage.style.transform = data.stageT;
+
+      frame.style.opacity = '1';
+      caption.classList.add('active');
+      renderDots();
+
+      requestAnimationFrame(() => {
+        progressFill.classList.add('animate');
+        progressFill.style.width = '100%';
+      });
+    }, 400);
+
+    if (restartTimer) resetTimer();
+  }
+
+  function resetTimer() {
+    clearInterval(timer);
+    if (!paused && running) {
+      timer = setInterval(() => goTo(step + 1, false), STEP_MS);
+    }
+  }
+
+  function setPaused(v) {
+    paused = v;
+    pauseBtn.innerHTML = paused
+      ? '<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>';
+    if (paused) {
+      clearInterval(timer);
+      progressFill.style.transition = 'none';
+    } else {
+      resetTimer();
+    }
+  }
+
+  // ---------- Generated ambient background music (Web Audio API) ----------
+  let audioCtx = null;
+  let musicNodes = null;
+  let musicMuted = false;
+
+  function startMusic() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    const masterGain = audioCtx.createGain();
+    masterGain.gain.value = 0.05;
+    masterGain.connect(audioCtx.destination);
+
+    // soft evolving pad: three detuned sine oscillators
+    const freqs = [110, 164.81, 220]; // A2, E3, A3 — calm open fifth/octave
+    const oscGains = [];
+    freqs.forEach((f, i) => {
+      const osc = audioCtx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = f;
+      const g = audioCtx.createGain();
+      g.gain.value = 0.0;
+      osc.connect(g);
+      g.connect(masterGain);
+      osc.start();
+      // gentle fade-in
+      g.gain.linearRampToValueAtTime(0.18 / freqs.length, audioCtx.currentTime + 2);
+      oscGains.push(g);
+    });
+
+    // slow filter sweep for movement
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 800;
+    masterGain.disconnect();
+    masterGain.connect(filter);
+    filter.connect(audioCtx.destination);
+
+    let t = 0;
+    const lfo = setInterval(() => {
+      t += 0.05;
+      filter.frequency.value = 600 + Math.sin(t) * 300;
+    }, 100);
+
+    musicNodes = { masterGain, oscGains, filter, lfo };
+  }
+
+  function stopMusic() {
+    if (!audioCtx) return;
+    clearInterval(musicNodes.lfo);
+    musicNodes.masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+    setTimeout(() => { audioCtx.close(); audioCtx = null; musicNodes = null; }, 600);
+  }
+
+  function toggleMute() {
+    musicMuted = !musicMuted;
+    if (musicNodes) {
+      musicNodes.masterGain.gain.linearRampToValueAtTime(
+        musicMuted ? 0 : 0.05,
+        audioCtx.currentTime + 0.2
+      );
+    }
+    muteBtn.style.opacity = musicMuted ? '0.4' : '1';
+  }
+  // --------------------------------------------------------------------
+
+  function start() {
+    running = true;
+    startUI.style.display = 'none';
+    runningControls.style.display = 'flex';
+    progressTrack.classList.add('visible');
+    stepDotsEl.classList.add('visible');
+    startMusic();
+    goTo(0);
+  }
+
+  startBtn.addEventListener('click', start);
+  pauseBtn.addEventListener('click', () => setPaused(!paused));
+  nextBtn.addEventListener('click', () => goTo(step + 1));
+  prevBtn.addEventListener('click', () => goTo(step - 1));
+  muteBtn.addEventListener('click', toggleMute);
+
+  document.addEventListener('keydown', (e) => {
+    if (!running) return;
+    if (e.key === 'ArrowRight') goTo(step + 1);
+    if (e.key === 'ArrowLeft') goTo(step - 1);
+    if (e.key === ' ') { e.preventDefault(); setPaused(!paused); }
+  });
+</script>
+
 </body>
 </html>
