@@ -36,8 +36,15 @@ def bundle_dir(params, tmp_path):
 
 
 @pytest.fixture
-def client(bundle_dir, monkeypatch):
+def client(bundle_dir, monkeypatch, tmp_path):
     monkeypatch.setenv("ENGINE_PARAMS_DIR", str(bundle_dir))
+    # Keep the learning layer's state out of the working tree: a test run must
+    # not leave an event log or a trained bandit behind in the repository.
+    monkeypatch.setenv("ENGINE_LEARN_STATE_DIR", str(tmp_path / "learn"))
+    # Pin the exploration slice off so the contract tests are deterministic.
+    # In production ~10% of requests deliberately take a different arm, which
+    # would otherwise make "these two calls agree" a flaky assertion.
+    monkeypatch.setenv("ENGINE_LEARN_EXPLORE_SHARE", "0")
     with TestClient(main.app) as test_client:
         yield test_client
 
@@ -118,6 +125,7 @@ class TestDegradedStart:
     def test_missing_artifacts_report_503_rather_than_crashing(self, tmp_path, monkeypatch):
         """engine_v2 raised inside its lifespan handler; anything that got
         through answered every request with a KeyError on `state["rec"]`."""
+        monkeypatch.setenv("ENGINE_LEARN_STATE_DIR", str(tmp_path / "learn"))
         monkeypatch.setenv("ENGINE_PARAMS_DIR", str(tmp_path / "absent"))
         with TestClient(main.app, raise_server_exceptions=False) as client:
             health = client.get("/health")
@@ -158,3 +166,98 @@ class TestLiveSignal:
         ).json()
         assert with_signal["source"] == "blended_profile"
         assert plain["source"] == "trained_embedding"
+
+
+class TestLearningEndpoints:
+    """The feedback loop over HTTP. See `algorithm improvement/README.md`."""
+
+    def test_learning_reports_the_arm_registry_and_mode(self, client):
+        body = client.get("/learning").json()
+        assert body["enabled"] is True
+        assert body["bandit"]["mode"] == "shadow"
+        assert {p["name"] for p in body["policies"]} >= {"exploit", "discover", "diversify"}
+
+    def test_health_carries_a_learning_summary(self, client):
+        summary = client.get("/health").json()["learning"]
+        assert summary["enabled"] is True
+        assert "attribution_rate" in summary
+
+    def test_feedback_on_a_served_track_is_attributed(self, client):
+        track_id = client.get("/suggest", params={"user_id": 1}).json()["track_id"]
+        body = client.post(
+            "/feedback",
+            json={"user_id": 1, "track_id": track_id, "outcome": "completed"},
+        ).json()
+        assert body["attributed"] is True
+        assert body["reward"] > 0
+
+    def test_feedback_on_a_track_we_never_served_is_not_attributed(self, client):
+        body = client.post(
+            "/feedback", json={"user_id": 1, "track_id": 987654, "outcome": "completed"}
+        ).json()
+        assert body["attributed"] is False
+
+    def test_feedback_validates_its_input(self, client):
+        assert client.post("/feedback", json={"user_id": 1}).status_code == 422
+        assert client.post(
+            "/feedback", json={"track_id": 1, "outcome": "vibed"}
+        ).status_code == 422
+        assert client.post(
+            "/feedback", json={"track_id": "abc", "outcome": "completed"}
+        ).status_code == 422
+
+    def test_implicit_hints_train_the_loop_through_suggest(self, client):
+        """No app change required: /suggest already carries these parameters."""
+        first = client.get("/suggest", params={"user_id": 1}).json()["track_id"]
+        client.get(
+            "/suggest", params={"user_id": 1, "implicit_liked_track_id": first}
+        )
+        learning = client.get("/learning").json()
+        assert learning["counters"]["outcomes_attributed"] >= 1
+
+    def test_suggest_reports_which_policy_served_the_pick(self, client):
+        body = client.get("/suggest", params={"user_id": 1}).json()
+        assert body["policy"] in {p["name"] for p in client.get("/learning").json()["policies"]}
+
+    def test_explain_shows_the_policy_and_personalisation(self, client):
+        body = client.get("/explain", params={"user_id": 1, "top_k": 3}).json()
+        assert body["learning"]["policy"] is not None
+        assert body["learning"]["personalised"] is False  # user deltas off by default
+
+    def test_snapshot_can_be_forced(self, client):
+        assert client.post("/learning/snapshot").json()["saved"] is True
+
+    def test_state_survives_a_restart_of_the_service(self, bundle_dir, monkeypatch, tmp_path):
+        """Learning that evaporates on deploy is not learning."""
+        state = tmp_path / "learn"
+        monkeypatch.setenv("ENGINE_PARAMS_DIR", str(bundle_dir))
+        monkeypatch.setenv("ENGINE_LEARN_STATE_DIR", str(state))
+        monkeypatch.setenv("ENGINE_LEARN_EXPLORE_SHARE", "0")
+
+        with TestClient(main.app) as first:
+            track_id = first.get("/suggest", params={"user_id": 1}).json()["track_id"]
+            first.post(
+                "/feedback",
+                json={"user_id": 1, "track_id": track_id, "outcome": "completed"},
+            )
+            before = first.get("/learning").json()["bandit"]["total_updates"]
+        assert before >= 1
+
+        with TestClient(main.app) as second:
+            assert second.get("/learning").json()["bandit"]["total_updates"] == before
+
+
+class TestLearningDisabled:
+    def test_the_engine_serves_normally_with_learning_switched_off(
+        self, bundle_dir, monkeypatch, tmp_path
+    ):
+        monkeypatch.setenv("ENGINE_PARAMS_DIR", str(bundle_dir))
+        monkeypatch.setenv("ENGINE_LEARN_ENABLED", "0")
+        with TestClient(main.app) as client:
+            assert client.get("/suggest", params={"user_id": 1}).status_code == 200
+            assert "policy" not in client.get("/suggest", params={"user_id": 1}).json()
+            assert client.get("/learning").json()["enabled"] is False
+            assert client.post(
+                "/feedback", json={"track_id": 1, "outcome": "completed"}
+            ).status_code == 503
+            assert client.get("/health").json()["learning"] == {"enabled": False}
