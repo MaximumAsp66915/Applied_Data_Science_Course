@@ -9,3 +9,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 engine.log
+
+# Learned state: the bandit matrices, per-user deltas, item posteriors and the
+# feedback event log. Runtime data, rebuilt from live traffic -- never committed.
+algorithm improvement/state/

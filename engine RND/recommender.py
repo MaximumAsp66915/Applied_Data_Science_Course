@@ -86,13 +86,9 @@ class Recommender:
         self.params = params
         self.config = config
 
-        # Stage-1 scoring operand, assembled once. Folding the bias in as an
-        # extra dimension turns "dot product plus bias" into a single matmul
-        # and keeps the hot path free of branches. [FIX 3]
-        bias = params.artist_bias.astype(np.float32) * np.float32(config.artist_bias_weight)
-        self._artist_matrix = np.ascontiguousarray(
-            np.hstack([params.artist_item_emb, bias.reshape(-1, 1)]).T
-        )  # (d_a + 1, n_artists)
+        # Stage-1 scoring operands, assembled once. [FIX 3]
+        self._artist_emb_t = np.ascontiguousarray(params.artist_item_emb.T)  # (d_a, n_artists)
+        self._artist_bias = params.artist_bias.astype(np.float32)
 
         # Popularity prior, precomputed on the log scale and squashed to
         # [0, 1] so `pop_prior_weight` means the same thing across retrains
@@ -226,9 +222,24 @@ class Recommender:
         exclude: set[int] | None = None,
         top_k: int | None = None,
         n_artists: int | None = None,
+        config: ServingConfig | None = None,
+        item_signals=None,
     ) -> Recommendation:
-        """Run the full pipeline and return a ranked list of track ids."""
-        cfg = self.config
+        """Run the full pipeline and return a ranked list of track ids.
+
+        `config` overrides the engine's settings for this request only, and
+        `item_signals` is an optional callable mapping a candidate array to a
+        per-candidate score adjustment. Both default to None, in which case
+        this behaves exactly as it did before they existed.
+
+        They are the two hooks the feedback-learning layer needs (see
+        ``algorithm improvement/``): the bandit chooses a strategy per request,
+        and the engagement model nudges candidates by how the group has
+        actually been responding to them. Keeping them as parameters rather
+        than mutable state means a learned decision cannot leak between
+        concurrent requests.
+        """
+        cfg = config or self.config
         top_k = int(top_k or cfg.top_k_default)
         exclude = exclude or set()
 
@@ -238,8 +249,8 @@ class Recommender:
             )
 
         base_n = int(n_artists or cfg.n_artist_candidates)
-        scores = self._artist_scores(profile.artist_vec)
-        scores = self._damp_seen_artists(scores, exclude)
+        scores = self._artist_scores(profile.artist_vec, cfg)
+        scores = self._damp_seen_artists(scores, exclude, cfg)
 
         # [FIX 2] widen the shortlist until the pool can actually fill the
         # request, rather than bailing to global popularity on the first miss.
@@ -248,7 +259,7 @@ class Recommender:
         for step, factor in enumerate(cfg.widen_factors):
             widen_steps = step
             n = min(base_n * factor, len(self.params.artist_ids))
-            candidates = self._collect_candidates(scores, n, exclude)
+            candidates = self._collect_candidates(scores, n, exclude, cfg)
             if len(candidates) >= top_k:
                 break
 
@@ -257,8 +268,15 @@ class Recommender:
                 self.popular_tracks(exclude, top_k), SOURCE_POPULAR, 0, widen_steps, False
             )
 
-        ranked, reranked = self._rank_candidates(candidates, profile.track_vec)
-        ranked = self._diversify(ranked, top_k)
+        adjustment = None
+        if item_signals is not None:
+            try:
+                adjustment = item_signals(candidates)
+            except Exception:  # noqa: BLE001 - never fail a request over a hint
+                adjustment = None
+
+        ranked, reranked = self._rank_candidates(candidates, profile.track_vec, cfg, adjustment)
+        ranked = self._diversify(ranked, top_k, cfg)
 
         # A widened search can still fall short of top_k on a small catalogue;
         # top up from global popularity rather than returning a short list.
@@ -279,6 +297,8 @@ class Recommender:
         profile: UserProfile | None,
         exclude: set[int] | None = None,
         rng: np.random.Generator | None = None,
+        config: ServingConfig | None = None,
+        item_signals=None,
     ) -> Recommendation:
         """A single next-track pick.
 
@@ -289,12 +309,15 @@ class Recommender:
         was fully deterministic, which put a user with no ``exclude`` list in
         a one-track loop.
         """
-        depth = max(1, self.config.top_k_default)
-        result = self.recommend(profile, exclude=exclude, top_k=depth)
+        cfg = config or self.config
+        depth = max(1, cfg.top_k_default)
+        result = self.recommend(
+            profile, exclude=exclude, top_k=depth, config=cfg, item_signals=item_signals
+        )
         if not result.track_ids:
             return replace(result, track_ids=[])
 
-        temperature = self.config.explore_temperature
+        temperature = cfg.explore_temperature
         if temperature <= 0 or len(result.track_ids) == 1:
             return replace(result, track_ids=result.track_ids[:1])
 
@@ -373,12 +396,26 @@ class Recommender:
         return picked
 
     # -------------------------------------------------------------- internals
-    def _artist_scores(self, artist_vec: np.ndarray) -> np.ndarray:
-        """user . artist + artist_bias, for every artist, in one matmul."""
-        query = np.append(artist_vec.astype(np.float32), np.float32(1.0))
-        return query @ self._artist_matrix
+    def _artist_scores(
+        self, artist_vec: np.ndarray, cfg: ServingConfig | None = None
+    ) -> np.ndarray:
+        """user . artist + weight * artist_bias, for every artist.
 
-    def _damp_seen_artists(self, scores: np.ndarray, exclude: set[int]) -> np.ndarray:
+        The bias is applied as a separate weighted add rather than being folded
+        into a precomputed matrix, so a per-request config can change
+        `artist_bias_weight` without rebuilding a 5107 x 201 array. The cost is
+        one length-5107 axpy.
+        """
+        cfg = cfg or self.config
+        scores = artist_vec.astype(np.float32) @ self._artist_emb_t
+        weight = np.float32(cfg.artist_bias_weight)
+        if weight != 0:
+            scores = scores + weight * self._artist_bias
+        return scores
+
+    def _damp_seen_artists(
+        self, scores: np.ndarray, exclude: set[int], cfg: ServingConfig | None = None
+    ) -> np.ndarray:
         """Push down artists the caller has already been served a lot of.
 
         The engine holds no session state, but ``exclude_track_ids`` carries
@@ -386,7 +423,7 @@ class Recommender:
         turn. Without this, one deep catalogue can own an entire listening
         session -- the failure engine_v2's own notebook output shows.
         """
-        damping = self.config.session_damping
+        damping = (cfg or self.config).session_damping
         if damping <= 0 or not exclude:
             return scores
 
@@ -405,8 +442,13 @@ class Recommender:
         return scores
 
     def _collect_candidates(
-        self, scores: np.ndarray, n_artists: int, exclude: set[int]
+        self,
+        scores: np.ndarray,
+        n_artists: int,
+        exclude: set[int],
+        cfg: ServingConfig | None = None,
     ) -> np.ndarray:
+        cfg = cfg or self.config
         n_artists = max(1, min(n_artists, len(scores)))
         if n_artists >= len(scores):
             top_rows = np.argsort(-scores, kind="stable")
@@ -414,8 +456,8 @@ class Recommender:
             top_rows = np.argpartition(-scores, n_artists - 1)[:n_artists]
             top_rows = top_rows[np.argsort(-scores[top_rows], kind="stable")]
 
-        cap = self.config.tracks_per_artist
-        keep_unscored = self.config.include_unscored_tracks
+        cap = cfg.tracks_per_artist
+        keep_unscored = cfg.include_unscored_tracks
         seen: set[int] = set()
         pool: list[int] = []
         for row in top_rows:
@@ -439,15 +481,29 @@ class Recommender:
         return np.array(pool, dtype=np.int64)
 
     def _rank_candidates(
-        self, candidates: np.ndarray, track_vec: np.ndarray | None
+        self,
+        candidates: np.ndarray,
+        track_vec: np.ndarray | None,
+        cfg: ServingConfig | None = None,
+        adjustment: np.ndarray | None = None,
     ) -> tuple[list[int], bool]:
-        """Score the pool and sort it. Returns (ranked ids, used_track_model)."""
+        """Score the pool and sort it. Returns (ranked ids, used_track_model).
+
+        `adjustment` is an optional per-candidate score offset supplied by the
+        learning layer -- how the group has actually been responding to each
+        candidate. It is added to the final score, so it can reorder the pool
+        but never introduces a candidate the model did not propose.
+        """
+        cfg = cfg or self.config
         prior = np.array(
             [self._pop_prior.get(int(t), 0.0) for t in candidates], dtype=np.float32
         )
+        extra = np.zeros(len(candidates), dtype=np.float32)
+        if adjustment is not None and len(adjustment) == len(candidates):
+            extra = np.asarray(adjustment, dtype=np.float32)
 
         if track_vec is None:
-            order = np.argsort(-prior, kind="stable")
+            order = np.argsort(-(prior + extra), kind="stable")
             return [int(candidates[i]) for i in order], False
 
         # [FIX 4] one matmul for the whole pool.
@@ -465,13 +521,15 @@ class Recommender:
         # the pool mean and let the popularity prior break the tie.
         model[~has_emb] = 0.0
 
-        score = model + np.float32(self.config.pop_prior_weight) * prior
+        score = model + np.float32(cfg.pop_prior_weight) * prior + extra
         order = np.argsort(-score, kind="stable")
         return [int(candidates[i]) for i in order], bool(has_emb.any())
 
-    def _diversify(self, ranked: list[int], top_k: int) -> list[int]:
+    def _diversify(
+        self, ranked: list[int], top_k: int, cfg: ServingConfig | None = None
+    ) -> list[int]:
         """[FIX 7] Cap how many tracks by one artist reach the response."""
-        cap = self.config.max_tracks_per_artist_in_result
+        cap = (cfg or self.config).max_tracks_per_artist_in_result
         if cap <= 0:
             return ranked
 
