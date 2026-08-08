@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SUT Music — Demo</title>
+<style>
+  html, body {
+    margin: 0;
+    /* See index.html for why this is 100%/100% rather than 100vw/100vh:
+       viewport units resize with pinch/browser zoom, causing the page to
+       shift/scroll instead of the content simply growing larger in place. */
+    width: 100%;
+    height: 100%;
+    background: #0E0C15;
+    font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .preview-frame {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: block;
+    background: #0E0C15;
+  }
+</style>
+</head>
+<body>
+  <iframe class="preview-frame" src="device/iphone-preview.html?device=iphone-17-pro-max&page=../pages/demo-home.html"></iframe>
+</body>
+</html>

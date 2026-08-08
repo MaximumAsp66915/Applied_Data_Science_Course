@@ -1,0 +1,1282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>SUT Music — AI-powered music discovery, inside Telegram</title>
+<meta name="description" content="SUT Music turns a Telegram group's shared songs into a real recommendation system — a 24-table Postgres pipeline, an artist-first hybrid recommender, and a native Mini App, built for the Applied Data Science course at Sharif University." />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,800&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+
+<style>
+  :root{
+    --ink:#14121C;
+    --ink-2:#0F0D16;
+    --surface:#1E1B29;
+    --raised:#272335;
+    --line:#322D45;
+    --muted:#9891B0;
+    --paper:#F4F1FA;
+    --brand:#7C5CFC;
+    --brand-dim:#5B3FE0;
+    --brand-glow:#A78BFA;
+    --pulse:#FFB454;
+    --pulse-dim:#B9803A;
+    --rasp:#FB6F92;
+    --rasp-dim:#B24E68;
+  }
+
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    background:var(--ink);
+    color:var(--paper);
+    font-family:'Manrope',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    overflow-x:hidden;
+  }
+  ::selection{background:var(--brand); color:white;}
+  ::-webkit-scrollbar{width:10px;}
+  ::-webkit-scrollbar-track{background:var(--ink);}
+  ::-webkit-scrollbar-thumb{background:var(--line); border-radius:8px;}
+
+  h1,h2,h3,h4{font-family:'Fraunces',serif; margin:0; letter-spacing:-0.01em;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  a{color:inherit;}
+  img{max-width:100%; display:block;}
+
+  .wrap{max-width:1180px; margin:0 auto; padding:0 24px;}
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:8px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11.5px; letter-spacing:.16em; text-transform:uppercase;
+    color:var(--brand-glow);
+    padding:6px 14px; border-radius:999px;
+    background:rgba(124,92,252,0.1); border:1px solid rgba(124,92,252,0.28);
+  }
+  .eyebrow .dot{width:6px; height:6px; border-radius:50%; background:var(--pulse); box-shadow:0 0 0 3px rgba(255,180,84,0.18);}
+
+  /* ---------- reveal on scroll ---------- */
+  .reveal{opacity:0; transform:translateY(28px); transition:opacity .8s cubic-bezier(.2,.7,.2,1), transform .8s cubic-bezier(.2,.7,.2,1);}
+  .reveal.in{opacity:1; transform:translateY(0);}
+  .reveal-delay-1{transition-delay:.08s;}
+  .reveal-delay-2{transition-delay:.16s;}
+  .reveal-delay-3{transition-delay:.24s;}
+  .reveal-delay-4{transition-delay:.32s;}
+  @media (prefers-reduced-motion: reduce){
+    .reveal{opacity:1 !important; transform:none !important; transition:none !important;}
+    *{animation-duration:0.01ms !important; animation-iteration-count:1 !important; scroll-behavior:auto !important;}
+  }
+
+  /* ---------- nav ---------- */
+  nav.top{
+    position:fixed; top:0; left:0; right:0; z-index:100;
+    background:rgba(20,18,28,0.72); backdrop-filter:blur(14px);
+    border-bottom:1px solid rgba(255,255,255,0.06);
+  }
+  nav.top .inner{max-width:1180px; margin:0 auto; padding:14px 24px; display:flex; align-items:center; justify-content:space-between; gap:16px;}
+  .brandmark{display:flex; align-items:center; gap:10px; font-family:'Fraunces',serif; font-weight:600; font-size:18px;}
+  .brandmark .bars{display:flex; align-items:flex-end; gap:2px; height:16px;}
+  .brandmark .bars span{width:3px; border-radius:2px; background:var(--brand-glow); animation:pulseBar 1.1s ease-in-out infinite;}
+  @keyframes pulseBar{0%,100%{transform:scaleY(.4)} 50%{transform:scaleY(1)}}
+  .navlinks{position:relative; display:flex; gap:26px; font-size:14px; color:var(--muted); font-weight:600;}
+  .navlinks a{position:relative; padding:7px 0; transition:color .25s; z-index:2;}
+  .navlinks a:hover{color:var(--paper);}
+  .navlinks a.active{color:var(--paper);}
+  .nav-indicator{
+    position:absolute; left:0; bottom:0; height:2px; width:0;
+    background:linear-gradient(90deg,var(--brand-glow),var(--pulse));
+    border-radius:2px; z-index:1; pointer-events:none;
+    transform:translateX(0);
+    transition:transform .45s cubic-bezier(.65,0,.35,1), width .45s cubic-bezier(.65,0,.35,1), opacity .3s ease;
+    opacity:0;
+  }
+  .nav-indicator.ready{opacity:1;}
+  .nav-glow{
+    position:absolute; left:0; bottom:-3px; height:20px; width:0;
+    background:radial-gradient(ellipse 60% 100% at 50% 100%, rgba(167,139,250,.35), transparent 75%);
+    z-index:0; pointer-events:none;
+    transform:translateX(0);
+    transition:transform .45s cubic-bezier(.65,0,.35,1), width .45s cubic-bezier(.65,0,.35,1), opacity .3s ease;
+    opacity:0;
+  }
+  .nav-glow.ready{opacity:1;}
+  .navcta{
+    display:flex; align-items:center; gap:8px;
+    background:var(--brand); color:white; font-weight:700; font-size:13.5px;
+    padding:9px 16px; border-radius:999px; white-space:nowrap;
+    box-shadow:0 8px 24px -8px rgba(124,92,252,0.6);
+    transition:transform .15s, box-shadow .2s;
+  }
+  .navcta:hover{transform:translateY(-1px); box-shadow:0 12px 28px -8px rgba(124,92,252,0.75);}
+  @media (max-width:840px){ .navlinks{display:none;} }
+
+  /* ---------- hero ---------- */
+  .hero{
+    position:relative; padding:158px 0 90px; overflow:hidden;
+    background:
+      radial-gradient(ellipse 70% 55% at 18% -10%, rgba(124,92,252,.22), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 100% 10%, rgba(255,180,84,.10), transparent 60%),
+      var(--ink);
+  }
+  .hero-grid-bg{
+    position:absolute; inset:0; opacity:.35; pointer-events:none;
+    background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.06) 1px, transparent 0);
+    background-size:34px 34px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 40%, transparent 90%);
+  }
+  .hero-inner{position:relative; z-index:2; display:grid; grid-template-columns:1.05fr .95fr; gap:56px; align-items:center;}
+  @media (max-width:960px){ .hero-inner{grid-template-columns:1fr; text-align:center;} }
+
+  .hero h1{font-size:clamp(2.4rem,5.4vw,3.9rem); line-height:1.04; font-weight:700; color:var(--paper);}
+  .hero h1 em{font-style:normal; color:transparent; background:linear-gradient(100deg,var(--brand-glow),var(--pulse) 65%); -webkit-background-clip:text; background-clip:text;}
+  .hero p.lead{margin-top:20px; font-size:1.09rem; color:var(--muted); max-width:520px; line-height:1.65;}
+  @media (max-width:960px){ .hero p.lead{margin-left:auto; margin-right:auto;} }
+
+  .hero-ctas{display:flex; flex-wrap:wrap; gap:12px; margin-top:32px;}
+  @media (max-width:960px){ .hero-ctas{justify-content:center;} }
+  .btn{
+    display:inline-flex; align-items:center; gap:9px; font-weight:700; font-size:14.5px;
+    padding:13px 22px; border-radius:14px; transition:transform .15s ease, box-shadow .2s ease, background .2s;
+    border:1px solid transparent; cursor:pointer;
+  }
+  .btn:active{transform:scale(.97);}
+  .btn-primary{background:var(--brand); color:white; box-shadow:0 10px 30px -10px rgba(124,92,252,.65);}
+  .btn-primary:hover{background:var(--brand-dim); transform:translateY(-2px);}
+  .btn-ghost{background:var(--raised); color:var(--paper); border-color:var(--line);}
+  .btn-ghost:hover{border-color:var(--brand-glow); transform:translateY(-2px);}
+  .btn svg{width:17px; height:17px; flex-shrink:0;}
+
+  .hero-tags{display:flex; gap:10px; flex-wrap:wrap; margin-top:26px;}
+  @media (max-width:960px){ .hero-tags{justify-content:center;} }
+  .tag{
+    font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--muted);
+    border:1px solid var(--line); padding:5px 11px; border-radius:8px; background:rgba(255,255,255,0.02);
+  }
+
+  /* ---------- live cinematic demo embed ---------- */
+  .phone-stage{position:relative; display:flex; justify-content:center;}
+  .demo-frame-shell{
+    /* sized a bit larger than the raw 387x812 phone graphic and with extra
+       vertical head room baked into the ratio (387/970 instead of 387/812)
+       so the shell is tall enough to show the *entire* phone mockup plus
+       its caption/progress/controls HUD beneath it without clipping */
+    position:relative; width:100%; max-width:420px; aspect-ratio:387/970;
+    border-radius:52px; overflow:hidden;
+    background:radial-gradient(circle at 50% 40%, #241f38, #100d19 70%);
+    box-shadow:0 40px 90px -25px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.06) inset;
+    clip-path:inset(0 round 52px);
+  }
+  .demo-frame-shell iframe{width:100%; height:100%; border:0; display:block;}
+  .phone-glow{
+    position:absolute; width:380px; height:380px; border-radius:50%;
+    background:radial-gradient(circle, rgba(124,92,252,.32), transparent 70%);
+    top:50%; left:50%; transform:translate(-50%,-50%); filter:blur(14px); z-index:-1;
+  }
+
+  /* ---------- sections ---------- */
+  section{position:relative; padding:104px 0;}
+  .section-head{max-width:640px; margin:0 auto 56px; text-align:center;}
+  .section-head h2{font-size:clamp(1.8rem,3.4vw,2.6rem); font-weight:700; margin-top:16px;}
+  .section-head p{color:var(--muted); margin-top:14px; font-size:1.02rem; line-height:1.6;}
+
+  .divider{height:1px; background:linear-gradient(90deg,transparent,var(--line),transparent); max-width:1180px; margin:0 auto;}
+
+  /* ---------- stats ---------- */
+  .stats-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:18px;}
+  @media (max-width:900px){ .stats-grid{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:520px){ .stats-grid{grid-template-columns:1fr;} }
+  .stat-card{
+    background:var(--surface); border:1px solid var(--line); border-radius:20px; padding:26px 22px;
+    transition:transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+  }
+  .stat-card:hover{transform:translateY(-6px); border-color:rgba(167,139,250,.45); box-shadow:0 20px 40px -20px rgba(124,92,252,.4);}
+  .stat-num{font-family:'Fraunces',serif; font-weight:700; font-size:2.4rem; color:var(--paper); line-height:1;}
+  .stat-num .suffix{color:var(--brand-glow);}
+  .stat-label{margin-top:8px; font-size:13.5px; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em;}
+  .stat-sub{margin-top:10px; font-size:12.5px; color:#7d7594; font-family:'JetBrains Mono',monospace;}
+
+  /* ---------- feature / page tour grid ---------- */
+  .tour-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:16px;}
+  @media (max-width:900px){ .tour-grid{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:600px){ .tour-grid{grid-template-columns:1fr;} }
+  .tour-card{
+    background:var(--surface); border:1px solid var(--line); border-radius:18px; padding:22px;
+    cursor:pointer; transition:transform .22s ease, border-color .22s ease, background .22s ease;
+    position:relative; overflow:hidden;
+  }
+  .tour-card:hover{transform:translateY(-5px); border-color:var(--accent,var(--brand-glow)); background:var(--raised);}
+  .tour-card.active{border-color:var(--accent,var(--brand-glow)); background:var(--raised); box-shadow:0 0 0 1px var(--accent,var(--brand-glow)) inset, 0 16px 34px -18px rgba(124,92,252,.55);}
+  .tour-card .icon-badge{
+    width:42px; height:42px; border-radius:12px; display:flex; align-items:center; justify-content:center;
+    background:color-mix(in srgb, var(--accent,var(--brand)) 18%, transparent);
+    color:var(--accent,var(--brand-glow)); margin-bottom:14px;
+  }
+  .tour-card h3{font-size:1.05rem; font-weight:600; color:var(--paper);}
+  .tour-card p{margin-top:8px; font-size:13.5px; color:var(--muted); line-height:1.55;}
+  .tour-card .route{
+    margin-top:14px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--accent,var(--brand-glow));
+    display:inline-block; border:1px solid var(--line); padding:3px 8px; border-radius:6px;
+  }
+
+  /* ---------- recommendation graph ---------- */
+  .rec-wrap{
+    background:var(--surface); border:1px solid var(--line); border-radius:26px; padding:8px;
+    overflow:hidden; position:relative;
+  }
+  .rec-svg-holder{width:100%; overflow:visible;}
+  .rec-node-label{font-family:'JetBrains Mono',monospace; font-size:11px;}
+  .rec-legend{display:flex; flex-wrap:wrap; gap:10px 20px; justify-content:center; padding:18px 12px 8px;}
+  .rec-legend-item{display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted);}
+  .rec-legend-dot{width:9px; height:9px; border-radius:50%;}
+
+  .rec-detail-cards{display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:28px;}
+  @media (max-width:900px){ .rec-detail-cards{grid-template-columns:repeat(2,1fr);} }
+  @media (max-width:600px){ .rec-detail-cards{grid-template-columns:1fr;} }
+  .rec-detail{
+    background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:18px;
+    border-left:3px solid var(--accent, var(--brand));
+  }
+  .rec-detail h4{font-size:14.5px; font-weight:700; color:var(--paper);}
+  .rec-detail .pageroute{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--accent,var(--brand-glow)); margin-top:4px; display:block;}
+  .rec-detail p{margin-top:10px; font-size:12.8px; color:var(--muted); line-height:1.55;}
+
+  /* ---------- research callout ---------- */
+  .research-band{
+    background:linear-gradient(135deg, rgba(124,92,252,.08), rgba(255,180,84,.05));
+    border:1px solid var(--line); border-radius:22px; padding:30px 32px; margin-top:34px;
+    display:grid; grid-template-columns:1fr auto; gap:20px; align-items:center;
+  }
+  @media (max-width:700px){ .research-band{grid-template-columns:1fr; text-align:center;} }
+  .research-band p{color:var(--muted); font-size:13.5px; line-height:1.6;}
+  .research-band strong{color:var(--paper);}
+
+  /* ---------- pipeline / ci-cd : horizontal interactive stepper ---------- */
+  .ship-track{position:relative; padding:6px 6px 0; overflow-x:auto;}
+  .ship-line{position:absolute; top:29px; left:35px; right:35px; height:3px; background:var(--line); border-radius:3px;}
+  .ship-line-fill{height:100%; width:10%; border-radius:3px; background:linear-gradient(90deg,var(--brand),var(--pulse),var(--rasp)); transition:width .55s cubic-bezier(.65,0,.35,1);}
+  .ship-nodes{position:relative; display:flex; justify-content:space-between; min-width:520px; gap:4px;}
+  .ship-node{
+    background:none; border:none; cursor:pointer; display:flex; flex-direction:column; align-items:center;
+    gap:11px; padding:4px; flex:1; font-family:inherit;
+  }
+  .ship-node .dot{
+    width:46px; height:46px; border-radius:50%; background:var(--surface); border:2px solid var(--line);
+    display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono',monospace;
+    font-weight:700; font-size:14px; color:var(--muted); transition:all .3s ease; position:relative; z-index:2;
+  }
+  .ship-node .lbl{font-size:12.5px; font-weight:700; color:var(--muted); transition:color .3s ease; text-align:center; line-height:1.3;}
+  .ship-node:hover .dot{border-color:var(--brand-glow); transform:translateY(-2px);}
+  .ship-node.done .dot{border-color:var(--brand-glow); color:var(--brand-glow); background:rgba(124,92,252,.1);}
+  .ship-node.active .dot{background:var(--brand); border-color:var(--brand-glow); color:#fff; box-shadow:0 0 0 6px rgba(124,92,252,.16); transform:translateY(-2px) scale(1.06);}
+  .ship-node.active .lbl{color:var(--paper);}
+
+  .ship-detail{
+    margin-top:30px; background:var(--surface); border:1px solid var(--line); border-radius:18px;
+    padding:24px 26px; transition:border-color .3s ease;
+  }
+  .ship-detail .k{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--brand-glow); text-transform:uppercase; letter-spacing:.1em;}
+  .ship-detail h4{margin-top:7px; font-size:1.15rem;}
+  .ship-detail p{margin-top:9px; color:var(--muted); font-size:13.8px; line-height:1.6; max-width:60ch;}
+  .ship-detail .cmd{
+    margin-top:13px; background:var(--ink-2); border:1px solid var(--line); border-radius:9px;
+    padding:9px 13px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:#8fe7b0;
+    overflow-x:auto; white-space:nowrap;
+  }
+  @media (max-width:560px){
+    .ship-node .lbl{font-size:11px;}
+    .ship-node .dot{width:40px; height:40px; font-size:12.5px;}
+  }
+
+  /* ---------- app details / capabilities ---------- */
+  .cap-grid{display:grid; grid-template-columns:repeat(2,1fr); gap:16px;}
+  @media (max-width:760px){ .cap-grid{grid-template-columns:1fr;} }
+  .cap-item{
+    position:relative; display:flex; gap:16px; background:var(--surface); border:1px solid var(--line);
+    border-radius:18px; padding:20px; overflow:hidden;
+    transition:transform .25s ease, border-color .25s ease, box-shadow .25s ease;
+    --mx:50%; --my:50%;
+  }
+  .cap-item::before{
+    content:''; position:absolute; inset:0; pointer-events:none; opacity:0; transition:opacity .3s ease;
+    background:radial-gradient(260px circle at var(--mx) var(--my), rgba(124,92,252,.14), transparent 65%);
+  }
+  .cap-item:hover{transform:translateY(-4px); border-color:rgba(167,139,250,.4); box-shadow:0 18px 40px -22px rgba(124,92,252,.5);}
+  .cap-item:hover::before{opacity:1;}
+  .cap-icon{
+    flex-shrink:0; width:44px; height:44px; border-radius:12px; background:rgba(124,92,252,.14);
+    color:var(--brand-glow); display:flex; align-items:center; justify-content:center;
+    position:relative; z-index:1; transition:transform .3s ease, background .3s ease;
+  }
+  .cap-item:hover .cap-icon{transform:scale(1.1) rotate(-4deg); background:rgba(124,92,252,.24);}
+  .cap-item h4{font-size:15px; font-weight:700; color:var(--paper); position:relative; z-index:1;}
+  .cap-item p{margin-top:6px; font-size:13.3px; color:var(--muted); line-height:1.55; position:relative; z-index:1;}
+
+  /* the one live, draggable control on the page — lives inside the
+     "Scrub to any moment" card so the feature demonstrates itself */
+  .mini-scrub{position:relative; z-index:1; margin-top:14px;}
+  .mini-scrub-times{display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted);}
+  .mini-scrub-track{
+    position:relative; margin-top:6px; height:18px; display:flex; align-items:center; cursor:pointer;
+    touch-action:none;
+  }
+  .mini-scrub-track::before{
+    content:''; position:absolute; left:0; right:0; height:4px; border-radius:3px; background:var(--line);
+  }
+  .mini-scrub-fill{position:absolute; left:0; height:4px; border-radius:3px; width:21.5%; background:linear-gradient(90deg,var(--brand),var(--brand-glow)); pointer-events:none;}
+  .mini-scrub-handle{
+    position:absolute; left:21.5%; width:13px; height:13px; margin-left:-6.5px; border-radius:50%;
+    background:var(--paper); box-shadow:0 0 0 3px rgba(124,92,252,.35), 0 2px 8px rgba(0,0,0,.4);
+    transition:transform .15s ease; pointer-events:none;
+  }
+  .mini-scrub-track:hover .mini-scrub-handle, .mini-scrub-track:active .mini-scrub-handle{transform:scale(1.15);}
+  .mini-scrub-hint{margin-top:8px; font-size:11px; color:#7d7594; font-family:'JetBrains Mono',monospace;}
+
+  /* ---------- devices: live inline preview, options flank the center stage ---------- */
+  .device-preview-wrap{display:flex; align-items:center; justify-content:center; gap:26px;}
+  .device-chips-col{display:flex; flex-direction:column; gap:10px; flex:0 0 168px;}
+  .device-chip{
+    display:block; width:100%; background:var(--surface); border:1px solid var(--line); border-radius:16px;
+    padding:14px 16px; text-align:left; color:inherit; font:inherit; cursor:pointer;
+    transition:transform .2s ease, border-color .2s ease, background .2s ease;
+  }
+  .device-chip:hover{transform:translateY(-3px); border-color:var(--brand-glow);}
+  .device-chip.active{border-color:var(--brand-glow); background:var(--raised); box-shadow:0 0 0 1px var(--brand-glow) inset;}
+  .device-chip .glyph{font-size:20px; margin-bottom:6px;}
+  .device-chip h5{margin:0; font-size:12.8px; font-weight:700; color:var(--paper);}
+  .device-chip span{font-size:11px; color:var(--muted); font-family:'JetBrains Mono',monospace;}
+
+  .device-center{display:flex; flex-direction:column; align-items:center; gap:16px; flex:0 1 auto;}
+  .device-center-label{
+    font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--brand-glow); transition:opacity .15s ease;
+  }
+  .device-center-frame{position:relative; display:flex; align-items:center; justify-content:center; min-height:520px;}
+  .device-center-glow{
+    position:absolute; width:320px; height:320px; border-radius:50%;
+    background:radial-gradient(circle, rgba(124,92,252,.28), transparent 70%);
+    filter:blur(18px); z-index:0; pointer-events:none;
+  }
+  .device-shell{
+    position:relative; z-index:1;
+    width:var(--dw, 230px); aspect-ratio:var(--dratio, 396/861); border-radius:var(--dradius, 52px);
+    background:radial-gradient(circle at 50% 40%, #241f38, #100d19 70%);
+    box-shadow:0 30px 70px -20px rgba(0,0,0,.75), 0 0 0 1px rgba(255,255,255,.06) inset;
+    overflow:hidden; transition:width .4s cubic-bezier(.22,1,.36,1), aspect-ratio .4s cubic-bezier(.22,1,.36,1), border-radius .4s ease;
+  }
+  .device-shell iframe{width:100%; height:100%; border:0; display:block;}
+  .device-notch{position:absolute; top:9px; left:50%; transform:translateX(-50%); z-index:2; background:#000;}
+  .device-notch.island{width:34%; height:16px; border-radius:10px;}
+  .device-notch.punch{width:10px; height:10px; border-radius:50%; top:11px;}
+  .device-notch.cam{width:7px; height:7px; border-radius:50%; top:7px;}
+  @media (max-width:900px){
+    .device-preview-wrap{flex-direction:column;}
+    .device-chips-col{flex-direction:row; flex-wrap:wrap; justify-content:center; flex:0 0 auto; width:100%;}
+    .device-chip{width:calc(50% - 5px); min-width:140px;}
+    .device-center-frame{min-height:440px;}
+  }
+
+  /* ---------- contribution ---------- */
+  .contrib-card{
+    background:linear-gradient(150deg, var(--surface), var(--raised));
+    border:1px solid var(--line); border-radius:26px; padding:46px; text-align:center;
+    position:relative; overflow:hidden;
+  }
+  .contrib-card::before{
+    content:''; position:absolute; width:400px; height:400px; border-radius:50%;
+    background:radial-gradient(circle, rgba(124,92,252,.25), transparent 70%);
+    top:-160px; right:-120px; pointer-events:none;
+  }
+  .contrib-card h2{font-size:clamp(1.6rem,3vw,2.2rem);}
+  .contrib-card p{color:var(--muted); max-width:560px; margin:16px auto 28px; line-height:1.65; font-size:1rem;}
+  .contrib-actions{display:flex; gap:12px; justify-content:center; flex-wrap:wrap;}
+
+  /* ---------- footer ---------- */
+  footer{border-top:1px solid var(--line); padding:48px 0 36px; background:var(--ink-2);}
+  .footer-grid{display:flex; justify-content:space-between; flex-wrap:wrap; gap:28px;}
+  .footer-links{display:flex; gap:22px; flex-wrap:wrap; font-size:13.5px; color:var(--muted);}
+  .footer-links a{transition:color .2s;}
+  .footer-links a:hover{color:var(--brand-glow);}
+  .footer-note{margin-top:26px; font-size:12px; color:#655d7d; text-align:center; font-family:'JetBrains Mono',monospace;}
+
+  /* ---------- toast ---------- */
+  .toast{
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:var(--raised); border:1px solid var(--brand-glow); color:var(--paper);
+    padding:12px 20px; border-radius:12px; font-size:13.5px; font-weight:600;
+    opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; z-index:200;
+    box-shadow:0 12px 30px -8px rgba(0,0,0,.6);
+  }
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+  .count-up{display:inline-block;}
+
+  /* ---------- screen preview drawer (slides in from the right edge
+     of the window; only ever attached to the tour section) ---------- */
+  .preview-veil{
+    position:fixed; inset:0; z-index:299; background:rgba(10,9,15,0.55); backdrop-filter:blur(3px);
+    opacity:0; pointer-events:none; transition:opacity .35s ease;
+  }
+  .preview-veil.show{opacity:1; pointer-events:auto;}
+
+  .preview-drawer{
+    position:fixed; top:0; right:0; bottom:0; z-index:300;
+    /* 20% wider than the original 392px so the drawer claims more of the
+       screen when it slides in from the right edge */
+    width:min(470px, 92vw);
+    display:flex; flex-direction:column;
+    padding:88px 26px 26px;
+    background:linear-gradient(165deg, #201c30, #131019 75%);
+    border-left:1px solid var(--line);
+    box-shadow:-40px 0 90px -30px rgba(0,0,0,.75);
+    transform:translateX(100%);
+    transition:transform .48s cubic-bezier(.22,1,.36,1);
+  }
+  .preview-drawer.show{transform:translateX(0);}
+
+  .preview-head{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px;}
+  .preview-eyebrow{font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--brand-glow); letter-spacing:.08em; text-transform:uppercase;}
+  .preview-title{font-family:'Fraunces',serif; font-size:1.25rem; font-weight:700; color:var(--paper); margin-top:3px;}
+  .preview-close{
+    flex-shrink:0; background:var(--raised); border:1px solid var(--line); color:var(--paper);
+    width:36px; height:36px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer;
+    transition:border-color .2s, transform .2s;
+  }
+  .preview-close:hover{border-color:var(--brand-glow); transform:rotate(90deg);}
+
+  .preview-phone{
+    position:relative; flex:1; margin:0 auto; width:100%; max-width:324px;
+    aspect-ratio:387/812; border-radius:44px; padding:11px;
+    background:linear-gradient(160deg,#2b2740,#141220);
+    box-shadow:0 40px 90px -20px rgba(0,0,0,.8), 0 0 0 1px rgba(255,255,255,.05) inset;
+  }
+  .preview-notch{position:absolute; top:11px; left:50%; transform:translateX(-50%); width:88px; height:20px; background:#141220; border-radius:12px; z-index:5;}
+  .preview-screen{
+    width:100%; height:100%; border-radius:33px; overflow:hidden; background:var(--ink);
+    /* clip-path backs up overflow:hidden so the iframe's own compositing
+       layer can never paint a sliver outside the rounded corner. */
+    clip-path:inset(0 round 33px);
+  }
+  .preview-screen iframe{width:100%; height:100%; border:0; background:var(--ink);}
+
+  .preview-switcher{display:flex; gap:6px; flex-wrap:wrap; justify-content:center; margin-top:18px;}
+  .preview-dot{
+    width:9px; height:9px; border-radius:50%; background:var(--line); border:none; cursor:pointer; padding:0;
+    transition:background .2s, transform .2s;
+  }
+  .preview-dot:hover{transform:scale(1.25);}
+  .preview-dot.active{background:var(--brand-glow); transform:scale(1.3);}
+  @media (max-width:640px){
+    .preview-drawer{padding-top:76px;}
+  }
+</style>
+</head>
+<body>
+
+<nav class="top">
+  <div class="inner">
+    <div class="brandmark">
+      <div class="bars">
+        <span style="height:6px;animation-delay:0s"></span>
+        <span style="height:14px;animation-delay:.1s"></span>
+        <span style="height:9px;animation-delay:.2s"></span>
+        <span style="height:16px;animation-delay:.3s"></span>
+        <span style="height:7px;animation-delay:.4s"></span>
+      </div>
+      SUT Music
+    </div>
+    <div class="navlinks" id="navlinks">
+      <span class="nav-glow" id="navGlow"></span>
+      <span class="nav-indicator" id="navIndicator"></span>
+      <a href="#demo" data-sec="demo">Demo</a>
+      <a href="#numbers" data-sec="numbers">Numbers</a>
+      <a href="#suggestions" data-sec="suggestions">Suggestions</a>
+      <a href="#inside" data-sec="inside">Inside the app</a>
+      <a href="#pipeline" data-sec="pipeline">Pipeline</a>
+      <a href="#contribute" data-sec="contribute">Contribute</a>
+    </div>
+    <a class="navcta" href="https://t.me/SUTMusic_Bot?startapp" target="_blank" rel="noopener">
+      Open the bot →
+    </a>
+  </div>
+</nav>
+
+<!-- ================= HERO ================= -->
+<header class="hero" id="demo">
+  <div class="hero-grid-bg"></div>
+  <div class="wrap hero-inner">
+    <div class="reveal in" id="hero-text">
+      <span class="eyebrow"><span class="dot"></span> Applied Data Science Course · Sharif University</span>
+      <h1 style="margin-top:22px;">A Telegram group's music, turned into <em>a recommendation engine</em>.</h1>
+      <p class="lead">
+        SUT Music started as students sharing songs in a Telegram chat. It's now a 24-table
+        Postgres pipeline, an artist-first hybrid recommender, and a native Mini App that
+        streams, ranks, and suggests from everything the group has ever shared.
+      </p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" href="https://t.me/SUTMusic_Bot?startapp" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+          Launch the Web App
+        </a>
+        <a class="btn btn-ghost" href="https://t.me/SharifMusic" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Join the group
+        </a>
+        <a class="btn btn-ghost" href="https://github.com/MaximumAsp66915/Applied_Data_Science_Course" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.1.79-.25.79-.55 0-.27-.01-1.16-.02-2.11-3.2.7-3.87-1.36-3.87-1.36-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.17.08 1.78 1.2 1.78 1.2 1.03 1.77 2.71 1.26 3.37.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.04 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.64 1.58.24 2.75.12 3.04.74.81 1.18 1.84 1.18 3.1 0 4.43-2.69 5.4-5.26 5.69.42.36.78 1.07.78 2.16 0 1.56-.02 2.82-.02 3.2 0 .3.21.66.8.55A10.53 10.53 0 0 0 23.5 12c0-6.35-5.15-11.5-11.5-11.5Z"/></svg>
+          View source
+        </a>
+      </div>
+      <div class="hero-tags">
+        <span class="tag">14,496 tracks</span>
+        <span class="tag">5,182 artists</span>
+        <span class="tag">24-table Postgres</span>
+        <span class="tag">FastAPI + React Mini App</span>
+      </div>
+    </div>
+
+    <div class="phone-stage reveal reveal-delay-2 in">
+      <div class="phone-glow"></div>
+      <div class="demo-frame-shell">
+        <iframe id="hero-frame" src="demo/v1/demo-clip.html" title="SUT Music live interactive demo" loading="lazy"></iframe>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ================= INTRO STRIP ================= -->
+<section style="padding:64px 0;">
+  <div class="wrap section-head reveal">
+    <span class="eyebrow">What it is</span>
+    <h2>One Telegram group. Every song it ever shared.</h2>
+    <p>
+      SUT Music began inside <strong style="color:var(--paper)">SharifMusic</strong>, a Telegram group
+      that grew from an Electrical Engineering hangout into a university-wide music community.
+      Two scraping rebuilds and a full database redesign later, every shared track, artist, and
+      reaction lives in one Postgres pipeline — and a Telegram Mini App lets anyone in the group
+      play, rank, and get suggestions from it, with zero login and zero separate account.
+    </p>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ================= NUMBERS ================= -->
+<section id="numbers">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">By the numbers</span>
+      <h2>What's actually in the catalogue</h2>
+      <p>Real figures from the production database, not placeholders — measured after the 2026 scraper rebuild.</p>
+    </div>
+    <div class="stats-grid">
+      <div class="stat-card reveal reveal-delay-1">
+        <div class="stat-num"><span class="count-up" data-target="14496">0</span></div>
+        <div class="stat-label">Tracks indexed</div>
+        <div class="stat-sub">~11,000 → 14,496 after the rebuild</div>
+      </div>
+      <div class="stat-card reveal reveal-delay-2">
+        <div class="stat-num"><span class="count-up" data-target="5182">0</span></div>
+        <div class="stat-label">Canonical artists</div>
+        <div class="stat-sub">deduped from 5,261 raw names</div>
+      </div>
+      <div class="stat-card reveal reveal-delay-3">
+        <div class="stat-num">~<span class="count-up" data-target="1300">0</span></div>
+        <div class="stat-label">Contributing users</div>
+        <div class="stat-sub">people who've shared a track</div>
+      </div>
+      <div class="stat-card reveal reveal-delay-4">
+        <div class="stat-num"><span class="count-up" data-target="155537">0</span></div>
+        <div class="stat-label">Reactions captured</div>
+        <div class="stat-sub">86,129 on tracks + 69,408 on artists</div>
+      </div>
+    </div>
+    <div class="research-band reveal">
+      <p>
+        <strong>Sparsity is the whole story.</strong> The user–track matrix is only
+        ~0.55% dense — far too sparse for track-level collaborative filtering to work.
+        That single measurement is why the recommender predicts <strong>artists first</strong>,
+        not tracks — see the suggestion system below.
+      </p>
+      <a class="btn btn-ghost" style="white-space:nowrap" href="https://github.com/MaximumAsp66915/Applied_Data_Science_Course/tree/project/notebooks" target="_blank" rel="noopener">Read the notebooks →</a>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ================= APP TOUR ================= -->
+<section id="tour">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Inside the Mini App</span>
+      <h2>Nine screens, one Telegram identity</h2>
+      <p>Every screen below is a real route in the live app — tap through the demo phone above to see them play automatically, or jump straight to the screen that interests you.</p>
+    </div>
+    <div class="tour-grid" id="tour-grid"></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ================= SUGGESTION SYSTEMS / GRAPH ================= -->
+<section id="suggestions">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">The recommendation engine</span>
+      <h2>Six ways the app decides what plays next</h2>
+      <p>
+        One artist-first hybrid model powers most of it, re-ranked by a lighter track-level model,
+        and every other list on the app doubles as a suggestion surface in its own right.
+      </p>
+    </div>
+
+    <div class="rec-wrap reveal">
+      <div class="rec-svg-holder" id="rec-graph"></div>
+    </div>
+
+    <div class="rec-detail-cards" id="rec-detail-cards"></div>
+
+    <div class="research-band reveal" style="margin-top:32px;">
+      <p>
+        <strong>Why artists, not tracks:</strong> an early track-level matrix factorization model
+        plateaued at recall@10 ≈ 0.03–0.04 on a 1.7%-dense matrix. Collapsing the same signal onto
+        <strong style="color:var(--paper)">2,910 artists</strong> instead of 9,900 tracks produced a much
+        denser matrix and pushed recall@10 to <strong style="color:var(--paper)">0.087</strong>.
+        The shipped configuration — 5 candidate artists, 1 track each, track-model re-ranking on —
+        trades a little raw recall for far better variety, landing at Recall@1 = 0.038.
+      </p>
+      <a class="btn btn-ghost" style="white-space:nowrap" href="https://github.com/MaximumAsp66915/Applied_Data_Science_Course/tree/project/notebooks" target="_blank" rel="noopener">See the evaluation →</a>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ================= WHAT'S INSIDE THE EXPERIENCE ================= -->
+<section id="inside">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Built for actually listening</span>
+      <h2>Small details that add up</h2>
+      <p>None of this needs a new login — it's the same Telegram identity you already have in the group.</p>
+    </div>
+    <div class="cap-grid" id="cap-grid"></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ================= PIPELINE / CI-CD ================= -->
+<section id="pipeline">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Ship it</span>
+      <h2>A push becomes a live update</h2>
+      <p>Tap a step. One service keeps the bot, the API, and the app in sync every time.</p>
+    </div>
+    <div class="ship-track reveal" id="shipTrack">
+      <div class="ship-line"><div class="ship-line-fill" id="shipLineFill"></div></div>
+      <div class="ship-nodes" id="shipNodes"></div>
+    </div>
+    <div class="ship-detail reveal" id="shipDetail"></div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ================= DEVICES ================= -->
+<section id="devices">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Preview anywhere</span>
+      <h2>The demo runs on seven real device shapes</h2>
+      <p>No backend, no build step — tap a device and watch the live preview resize to fit it, right here.</p>
+    </div>
+    <div class="device-preview-wrap reveal" id="device-preview-wrap">
+      <div class="device-chips-col" id="deviceChipsLeft"></div>
+
+      <div class="device-center">
+        <div class="device-center-label" id="devicePreviewLabel">iPhone 17 Pro Max</div>
+        <div class="device-center-frame">
+          <div class="device-center-glow"></div>
+          <div class="device-shell" id="deviceShell">
+            <div class="device-notch" id="deviceNotch"></div>
+            <iframe id="devicePreviewFrame" src="demo/v1/pages/demo-home.html" title="Device preview" loading="lazy"></iframe>
+          </div>
+        </div>
+      </div>
+
+      <div class="device-chips-col" id="deviceChipsRight"></div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- ================= CONTRIBUTE ================= -->
+<section id="contribute">
+  <div class="wrap">
+    <div class="contrib-card reveal">
+      <span class="eyebrow">Open for contributors</span>
+      <h2 style="margin-top:18px;">Want to help build this further?</h2>
+      <p>
+        SUT Music is a student project from the Applied Data Science course — the scraper,
+        the database layer, the recommender, and the Mini App are all open on GitHub.
+        If you'd like to contribute, report an issue, or just talk about the recommendation
+        model, reach out directly.
+      </p>
+      <div class="contrib-actions">
+        <button class="btn btn-primary" onclick="copyEmail()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+          mohammad.sabzalian83@gmail.com
+        </button>
+        <a class="btn btn-ghost" href="https://github.com/MaximumAsp66915/Applied_Data_Science_Course" target="_blank" rel="noopener">Fork on GitHub</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="footer-grid">
+      <div class="brandmark" style="font-size:16px;">
+        <div class="bars">
+          <span style="height:5px"></span><span style="height:11px"></span><span style="height:8px"></span>
+        </div>
+        SUT Music
+      </div>
+      <div class="footer-links">
+        <a href="https://t.me/SharifMusic" target="_blank" rel="noopener">Telegram group</a>
+        <a href="https://t.me/SUTMusic_Bot" target="_blank" rel="noopener">Telegram bot</a>
+        <a href="https://t.me/SUTMusic_Bot?startapp" target="_blank" rel="noopener">Web app</a>
+        <a href="https://github.com/MaximumAsp66915/Applied_Data_Science_Course" target="_blank" rel="noopener">GitHub repo</a>
+        <a href="https://github.com/MaximumAsp66915/Applied_Data_Science_Course/tree/project/notebooks" target="_blank" rel="noopener">Documentation</a>
+        <a href="mailto:mohammad.sabzalian83@gmail.com">Contact</a>
+      </div>
+    </div>
+    <div class="footer-note">Applied Data Science Course · Sharif University of Technology.</div>
+  </div>
+</footer>
+
+<div class="toast" id="toast">Email copied — mohammad.sabzalian83@gmail.com</div>
+
+<div class="preview-veil" id="preview-veil"></div>
+<div class="preview-drawer" id="preview-drawer">
+  <div class="preview-head">
+    <div>
+      <div class="preview-eyebrow">Screen preview</div>
+      <div class="preview-title" id="preview-title">Home feed</div>
+    </div>
+    <span class="preview-close" id="preview-close" role="button" aria-label="Close preview">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </span>
+  </div>
+  <div class="preview-phone">
+    <div class="preview-notch"></div>
+    <div class="preview-screen"><iframe id="preview-frame" src="about:blank" title="Screen preview" loading="lazy"></iframe></div>
+  </div>
+  <div class="preview-switcher" id="preview-switcher"></div>
+</div>
+
+<script>
+/* ============ DATA (kept accurate to the project notebooks) ============ */
+
+const TOUR_PAGES = [
+  { key:'home', title:'Home feed', route:'pages/demo-home.html', accent:'#7C5CFC',
+    desc:'Latest tracks, latest artists, and top artists in one call — the front door to everything else.',
+    icon:'M3 9.5 12 3l9 6.5V21a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1Z' },
+  { key:'suggest', title:'Suggest me a song', route:'pages/demo-suggest.html', accent:'#A78BFA',
+    desc:'The recommendation engine\'s main entry point — one tap, one fresh pick from your top artists.',
+    icon:'m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z' },
+  { key:'song', title:'Now playing', route:'pages/demo-song.html', accent:'#FFB454',
+    desc:'A real seekable progress bar, like/dislike, download-to-DMs, and a context label that says what\'s driving your queue.',
+    icon:'M9 18V5l12-2v13 M9 9l12-2 M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6 M18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6' },
+  { key:'details', title:'Track details', route:'pages/demo-song-details.html', accent:'#FB6F92',
+    desc:'Waveform, reaction breakdown, and everyone who\'s shared this exact track.',
+    icon:'M3 12h3l2 8 4-16 2 8h7' },
+  { key:'artist', title:'Artist profile', route:'pages/demo-artist.html', accent:'#7C5CFC',
+    desc:'Full discography plus the artist-related fallback — the system every other engine leans on when it runs dry.',
+    icon:'M9 18V6l12-2v14 M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6 M18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6' },
+  { key:'ranks', title:'Ranks', route:'pages/demo-ranks.html', accent:'#FFB454',
+    desc:'People, tracks, and artists leaderboards — the top-tracks suggestion surface, sorted by likes.',
+    icon:'M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5Z' },
+  { key:'search', title:'Search', route:'pages/demo-search.html', accent:'#A78BFA',
+    desc:'One query, three scopes — tracks, artists, and users — or all of them at once.',
+    icon:'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.3-4.3' },
+  { key:'profile', title:'Profile', route:'pages/demo-profile.html', accent:'#FB6F92',
+    desc:'Your liked tracks and sent tracks — both are their own personalized suggestion feeds, private by default.',
+    icon:'M20 21a8 8 0 1 0-16 0 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z' },
+  { key:'latest', title:'Latest', route:'pages/demo-latest.html', accent:'#FFB454',
+    desc:'Newest-first tracks and artists — the freshness feed, and its own suggestion program in the play queue.',
+    icon:'M12 2a10 10 0 1 0 10 10 M12 6v6l4 2' },
+];
+
+const CAPS = [
+  { title:'Download to your DMs', desc:'The download button doesn\'t hand you a file — the bot copies the track straight into your Telegram chat with the bot, captioned with a deep link back into the app.',
+    icon:'M12 3v12 m-4-4 4 4 4-4 M4 21h16' },
+  { title:'Your listening history', desc:'Every song page tells you what\'s actually driving your queue — "Playing suggestions," "By most liked," or "Playing from newest tracks" — and Next/Prev follow that program.',
+    icon:'M12 8v4l3 3 M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z' },
+  { title:'Scrub to any moment', desc:'A real, seekable progress bar — drag to any point in the track and playback picks up exactly there, byte-range streamed straight from Telegram.',
+    scrubber:true,
+    svg:'<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><line x1="3" y1="12" x2="21" y2="12" stroke="currentColor" stroke-opacity="0.35" stroke-width="2" stroke-linecap="round"/><line x1="3" y1="12" x2="14" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="14" cy="12" r="3.4" fill="currentColor"/></svg>' },
+  { title:'Your reactions shape your feed', desc:'Likes and dislikes aren\'t just counters — a like recomputes your artist embedding on the spot, no retraining needed, and steers your very next suggestion.',
+    icon:'m19 14-7 7-7-7a5 5 0 0 1 7-7 5 5 0 0 1 7 7Z' },
+];
+
+const REC_NODES = [
+  { id:'engine',   label:'Recommendation engine',  sub:'artist-first hybrid model',      x:50,  y:34, r:46, color:'#7C5CFC', page:'Suggest page' },
+  { id:'artist',   label:'Artist-related',         sub:'universal fallback',             x:18,  y:14, r:38, color:'#A78BFA', page:'Artist page + every fallback' },
+  { id:'latest',   label:'Latest tracks',          sub:'newest → oldest',                x:82,  y:14, r:36, color:'#FFB454', page:'Latest page' },
+  { id:'top',      label:'Top tracks',             sub:'most-liked leaderboard',         x:82,  y:56, r:36, color:'#FFB454', page:'Ranks page' },
+  { id:'liked',    label:'Based on liked tracks',  sub:'per-user affinity',              x:16,  y:58, r:41, color:'#FB6F92', page:'Profile page' },
+  { id:'sent',     label:'Based on sent tracks',   sub:'per-user upload history',        x:50,  y:85, r:41, color:'#FB6F92', page:'Profile page' },
+];
+const REC_EDGES = [
+  ['engine','artist'], ['engine','latest'], ['engine','top'], ['engine','liked'], ['engine','sent'],
+  ['artist','latest'], ['artist','top'], ['artist','liked'], ['artist','sent'],
+];
+
+const REC_DETAILS = [
+  { title:'recommendation-engine', page:'Suggest page', accent:'#7C5CFC',
+    desc:'A BPR matrix-factorization model over a user-artist matrix, fused with Last.fm genre features and related-artist edges, then re-ranked by a separate track-level model. Serves N=5 candidate artists, K=1 track each.' },
+  { title:'artist-related', page:'Artist page · fallback for every system', accent:'#A78BFA',
+    desc:'Every list on the app that runs dry — an exhausted queue, a cold-start user, a popularity tie — degrades gracefully to an artist\'s own discography and related artists rather than returning nothing.' },
+  { title:'latest-tracks', page:'Latest page', accent:'#FFB454',
+    desc:'A pure newest-first walk over the catalogue. Doubles as a play-queue program: reach the edge of your history here and Next keeps walking chronologically.' },
+  { title:'top-tracks', page:'Ranks page', accent:'#FFB454',
+    desc:'Paged, most-liked-first leaderboards for people, tracks, and artists — the simplest and most robust fallback in the whole system, since it never needs a user profile at all.' },
+  { title:'based on liked tracks', page:'Profile page', accent:'#FB6F92',
+    desc:'A personalised rail built from tracks you\'ve reacted positively to — the same signal (score > 1.0) the engine itself trains on, just scoped to one person.' },
+  { title:'based on sent tracks', page:'Profile page', accent:'#FB6F92',
+    desc:'Your own uploads, treated as a strong positive signal — the engine weighs "you shared this" close to "you liked this" when building your artist embedding.' },
+];
+
+const PIPELINE = [
+  { title:'Push', desc:'A change gets pushed to GitHub.',
+    log:'git push origin main' },
+  { title:'Build', desc:'CI copies the new code to the server. No manual step.',
+    log:'rsync ./app/  →  server' },
+  { title:'Restart', desc:'One command brings the bot, API, and app back up together.',
+    log:'systemctl restart sutmusic' },
+  { title:'Reconnect', desc:'The public link refreshes itself — nothing to redeploy.',
+    log:'.env  →  new tunnel URL' },
+  { title:'Live', desc:'Bot, API, and Mini App — back in sync, on the same database.',
+    log:'sutmusic.service: active ✓' },
+];
+
+/* w/h = real CSS-pixel viewport of the device (used for aspect-ratio);
+   dw = the on-screen display width in the inline preview, hand-tuned per
+   device so none of the seven shapes ever tower too tall or squash too
+   short inside the fixed-height preview stage. */
+const DEVICES = [
+  { key:'iphone',  glyph:'📱', name:'iPhone 17 Pro Max', sub:'Dynamic Island',   w:396, h:861, dw:230, radius:52, notch:'island' },
+  { key:'s24',     glyph:'📱', name:'Samsung S24 Ultra', sub:'Punch-hole cam',   w:384, h:824, dw:230, radius:26, notch:'punch' },
+  { key:'s26',     glyph:'📱', name:'Samsung S26 Ultra', sub:'Titanium frame',   w:412, h:891, dw:230, radius:28, notch:'punch' },
+  { key:'zfold',   glyph:'📱', name:'Galaxy Z Fold 7',   sub:'Foldable, unfolded', w:492, h:546, dw:320, radius:20, notch:'punch' },
+  { key:'zflip',   glyph:'📱', name:'Galaxy Z Flip 7',   sub:'Foldable, cover',  w:324, h:756, dw:210, radius:26, notch:'punch' },
+  { key:'ipad',    glyph:'💻', name:'iPad Pro',          sub:'Tablet ratio',     w:620, h:826, dw:300, radius:36, notch:'cam' },
+  { key:'macbook', glyph:'💻', name:'MacBook Pro 14"',   sub:'Laptop frame',     w:756, h:491, dw:400, radius:14, notch:'cam' },
+];
+
+/* ============ RENDER ============ */
+
+function icon(path, size=20){
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${path.split(' M').map((p,i)=>`<path d="${i===0?p:'M'+p}"/>`).join('')}</svg>`;
+}
+
+document.getElementById('tour-grid').innerHTML = TOUR_PAGES.map((p,i)=>`
+  <div class="tour-card reveal reveal-delay-${(i%4)+1}" style="--accent:${p.accent}" data-route="${p.route}" data-label="${p.title}">
+    <div class="icon-badge">${icon(p.icon)}</div>
+    <h3>${p.title}</h3>
+    <p>${p.desc}</p>
+    <span class="route">${p.route}</span>
+  </div>
+`).join('');
+
+document.getElementById('cap-grid').innerHTML = CAPS.map((c,i)=>`
+  <div class="cap-item reveal reveal-delay-${(i%4)+1}">
+    <div class="cap-icon">${c.svg ? c.svg : icon(c.icon)}</div>
+    <div>
+      <h4>${c.title}</h4>
+      <p>${c.desc}</p>
+      ${c.scrubber ? `
+        <div class="mini-scrub" id="miniScrub">
+          <div class="mini-scrub-times">
+            <span id="miniScrubTime">0:42</span><span>3:15</span>
+          </div>
+          <div class="mini-scrub-track" id="miniScrubTrack">
+            <div class="mini-scrub-fill" id="miniScrubFill"></div>
+            <div class="mini-scrub-handle" id="miniScrubHandle"></div>
+          </div>
+          <div class="mini-scrub-hint">Drag it — this one actually seeks</div>
+        </div>` : ''}
+    </div>
+  </div>
+`).join('');
+
+/* spotlight-on-hover for the capability cards */
+document.querySelectorAll('.cap-item').forEach(el=>{
+  el.addEventListener('mousemove', (e)=>{
+    const r = el.getBoundingClientRect();
+    el.style.setProperty('--mx', (e.clientX-r.left)+'px');
+    el.style.setProperty('--my', (e.clientY-r.top)+'px');
+  });
+});
+
+/* the one real, working control on the page: drag to seek */
+(function miniScrub(){
+  const track = document.getElementById('miniScrubTrack');
+  const fill = document.getElementById('miniScrubFill');
+  const handle = document.getElementById('miniScrubHandle');
+  const time = document.getElementById('miniScrubTime');
+  if(!track) return;
+  const TOTAL = 195; // 3:15 in seconds
+  let dragging = false;
+
+  function fmt(s){ s=Math.max(0,Math.min(TOTAL,Math.round(s))); return Math.floor(s/60)+':'+String(s%60).padStart(2,'0'); }
+  function setPct(pct){
+    pct = Math.max(0, Math.min(1, pct));
+    fill.style.width = (pct*100)+'%';
+    handle.style.left = (pct*100)+'%';
+    time.textContent = fmt(pct*TOTAL);
+  }
+  function pctFromEvent(e){
+    const r = track.getBoundingClientRect();
+    const x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+    return x / r.width;
+  }
+  setPct(42/TOTAL);
+  track.addEventListener('pointerdown', (e)=>{ dragging = true; track.setPointerCapture(e.pointerId); setPct(pctFromEvent(e)); });
+  track.addEventListener('pointermove', (e)=>{ if(dragging) setPct(pctFromEvent(e)); });
+  track.addEventListener('pointerup', ()=> dragging = false);
+  track.addEventListener('pointercancel', ()=> dragging = false);
+})();
+
+document.getElementById('rec-detail-cards').innerHTML = REC_DETAILS.map((d,i)=>`
+  <div class="rec-detail reveal reveal-delay-${(i%4)+1}" style="--accent:${d.accent}">
+    <h4>${d.title}</h4>
+    <span class="pageroute">${d.page}</span>
+    <p>${d.desc}</p>
+  </div>
+`).join('');
+
+/* ============ SHIP-IT: horizontal interactive stepper ============ */
+(function shipStepper(){
+  const nodesEl = document.getElementById('shipNodes');
+  const fillEl = document.getElementById('shipLineFill');
+  const detailEl = document.getElementById('shipDetail');
+  const track = document.getElementById('shipTrack');
+  if(!nodesEl) return;
+
+  nodesEl.innerHTML = PIPELINE.map((s,i)=>`
+    <button class="ship-node" data-idx="${i}" type="button">
+      <span class="dot">${i+1}</span>
+      <span class="lbl">${s.title}</span>
+    </button>
+  `).join('');
+  const nodeEls = Array.from(nodesEl.children);
+
+  let active = 0;
+  let timer = null;
+
+  function render(idx){
+    active = idx;
+    const s = PIPELINE[idx];
+    nodeEls.forEach((n,i)=>{
+      n.classList.toggle('active', i===idx);
+      n.classList.toggle('done', i<idx);
+    });
+    const pct = ((idx+0.5) / PIPELINE.length) * 100;
+    fillEl.style.width = pct + '%';
+    detailEl.innerHTML = `
+      <div class="k">Step ${idx+1} of ${PIPELINE.length}</div>
+      <h4>${s.title}</h4>
+      <p>${s.desc}</p>
+      <div class="cmd">${s.log}</div>
+    `;
+  }
+
+  function loop(){
+    clearInterval(timer);
+    timer = setInterval(()=> render((active+1) % PIPELINE.length), 2600);
+  }
+
+  nodesEl.addEventListener('click', (e)=>{
+    const btn = e.target.closest('.ship-node');
+    if(!btn) return;
+    render(parseInt(btn.dataset.idx,10));
+    loop(); // clicking restarts the gentle auto-advance rather than freezing it
+  });
+
+  const shipIO = new IntersectionObserver((entries)=>{
+    entries.forEach(entry=>{
+      if(entry.isIntersecting) loop(); else clearInterval(timer);
+    });
+  }, { threshold: 0.4 });
+  shipIO.observe(track);
+
+  render(0);
+})();
+
+/* ---- devices: live inline preview, chips flank the center stage ---- */
+function deviceChipHTML(d){
+  return `
+  <button class="device-chip" type="button" data-key="${d.key}">
+    <div class="glyph">${d.glyph}</div>
+    <h5>${d.name}</h5>
+    <span>${d.sub}</span>
+  </button>`;
+}
+document.getElementById('deviceChipsLeft').innerHTML = DEVICES.slice(0,4).map(deviceChipHTML).join('');
+document.getElementById('deviceChipsRight').innerHTML = DEVICES.slice(4).map(deviceChipHTML).join('');
+
+const devicePreviewWrap = document.getElementById('device-preview-wrap');
+const deviceShell = document.getElementById('deviceShell');
+const deviceNotch = document.getElementById('deviceNotch');
+const devicePreviewLabel = document.getElementById('devicePreviewLabel');
+
+function selectDevice(key){
+  const d = DEVICES.find(x=>x.key===key) || DEVICES[0];
+  deviceShell.style.setProperty('--dw', d.dw+'px');
+  deviceShell.style.setProperty('--dratio', d.w+' / '+d.h);
+  deviceShell.style.setProperty('--dradius', d.radius+'px');
+  deviceNotch.className = 'device-notch ' + d.notch;
+  devicePreviewLabel.textContent = d.name;
+  devicePreviewWrap.querySelectorAll('.device-chip').forEach(ch=> ch.classList.toggle('active', ch.dataset.key === key));
+}
+devicePreviewWrap.addEventListener('click', (e)=>{
+  const chip = e.target.closest('.device-chip');
+  if(!chip) return;
+  selectDevice(chip.dataset.key);
+});
+selectDevice(DEVICES[0].key);
+
+/* ---- click a tour card -> slide that screen into the right-side drawer ---- */
+const tourGrid = document.getElementById('tour-grid');
+const tourSection = document.getElementById('tour');
+const previewVeil = document.getElementById('preview-veil');
+const previewDrawer = document.getElementById('preview-drawer');
+const previewFrame = document.getElementById('preview-frame');
+const previewTitle = document.getElementById('preview-title');
+const previewSwitcher = document.getElementById('preview-switcher');
+
+let activeTourIdx = -1;
+const tourCards = () => Array.from(tourGrid.children);
+
+previewSwitcher.innerHTML = TOUR_PAGES.map((p,i)=>
+  `<button class="preview-dot" data-idx="${i}" aria-label="${p.title}" title="${p.title}"></button>`
+).join('');
+const previewDots = Array.from(previewSwitcher.children);
+
+function openScreen(idx){
+  const p = TOUR_PAGES[idx];
+  activeTourIdx = idx;
+  previewFrame.src = 'demo/v1/' + p.route;
+  previewTitle.textContent = p.title;
+  previewVeil.classList.add('show');
+  previewDrawer.classList.add('show');
+  tourCards().forEach((c,i)=> c.classList.toggle('active', i===idx));
+  previewDots.forEach((d,i)=> d.classList.toggle('active', i===idx));
+}
+function closeScreen(){
+  previewVeil.classList.remove('show');
+  previewDrawer.classList.remove('show');
+  tourCards().forEach(c=> c.classList.remove('active'));
+  activeTourIdx = -1;
+  setTimeout(()=>{ if(activeTourIdx===-1) previewFrame.src = 'about:blank'; }, 400);
+}
+tourGrid.addEventListener('click', (e)=>{
+  const card = e.target.closest('.tour-card');
+  if(!card) return;
+  openScreen(tourCards().indexOf(card));
+});
+previewSwitcher.addEventListener('click', (e)=>{
+  const dot = e.target.closest('.preview-dot');
+  if(!dot) return;
+  openScreen(parseInt(dot.dataset.idx,10));
+});
+document.getElementById('preview-close').addEventListener('click', closeScreen);
+previewVeil.addEventListener('click', closeScreen);
+document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') closeScreen(); });
+
+/* leaving the tour section (scrolling away) auto-dismisses the drawer */
+const tourSectionIO = new IntersectionObserver((entries)=>{
+  entries.forEach(entry=>{
+    if(!entry.isIntersecting && activeTourIdx !== -1) closeScreen();
+  });
+}, { threshold: 0 });
+tourSectionIO.observe(tourSection);
+
+/* ============ RECOMMENDATION GRAPH (SVG, connected nodes, animated) ============ */
+(function renderGraph(){
+  const W = 900, H = 460;
+  const holder = document.getElementById('rec-graph');
+  const px = (x)=> (x/100)*W;
+  const py = (y)=> (y/100)*H + 10;
+
+  let edges = '';
+  REC_EDGES.forEach(([a,b], i)=>{
+    const A = REC_NODES.find(n=>n.id===a), B = REC_NODES.find(n=>n.id===b);
+    edges += `<line class="rgraph-edge" x1="${px(A.x)}" y1="${py(A.y)}" x2="${px(B.x)}" y2="${py(B.y)}"
+      stroke="url(#edgeGrad)" stroke-width="1.6" opacity="0.55" stroke-dasharray="5 5">
+      <animate attributeName="stroke-dashoffset" from="60" to="0" dur="${2+i*0.15}s" repeatCount="indefinite"/>
+      </line>`;
+  });
+
+  /* balanced 2-line word-wrap so long labels ("Based on liked tracks")
+     never spill past their circle the way a naive first-word split did */
+  function wrapLabel(label){
+    const words = label.split(' ');
+    if(words.length<=1) return [label, ''];
+    if(words.length===2) return [words[0], words[1]];
+    let best=[words[0], words.slice(1).join(' ')], bestDiff=Infinity;
+    for(let i=1;i<words.length;i++){
+      const l1 = words.slice(0,i).join(' '), l2 = words.slice(i).join(' ');
+      const diff = Math.abs(l1.length - l2.length);
+      if(diff<bestDiff){ bestDiff=diff; best=[l1,l2]; }
+    }
+    return best;
+  }
+
+  let nodes = '';
+  REC_NODES.forEach((n,i)=>{
+    const cx = px(n.x), cy = py(n.y);
+    const [line1, line2] = wrapLabel(n.label);
+    const fs1 = n.r >= 42 ? 14 : 12.5, fs2 = n.r >= 42 ? 11 : 10;
+    nodes += `
+      <g class="rgraph-node" style="cursor:pointer" data-idx="${i}">
+        <circle cx="${cx}" cy="${cy}" r="${n.r+7}" fill="${n.color}" opacity="0.12">
+          <animate attributeName="r" values="${n.r+5};${n.r+11};${n.r+5}" dur="${3+i*0.3}s" repeatCount="indefinite"/>
+        </circle>
+        <circle cx="${cx}" cy="${cy}" r="${n.r}" fill="${n.id==='engine' ? n.color : 'var(--surface)'}" stroke="${n.color}" stroke-width="2"/>
+        ${line2
+          ? `<text x="${cx}" y="${cy-4}" text-anchor="middle" class="rec-node-label" fill="${n.id==='engine' ? '#fff' : 'var(--paper)'}" font-weight="700" font-size="${fs1}">${line1}</text>
+             <text x="${cx}" y="${cy+13}" text-anchor="middle" class="rec-node-label" fill="${n.id==='engine' ? 'rgba(255,255,255,.75)' : 'var(--muted)'}" font-size="${fs2}">${line2}</text>`
+          : `<text x="${cx}" y="${cy+5}" text-anchor="middle" class="rec-node-label" fill="${n.id==='engine' ? '#fff' : 'var(--paper)'}" font-weight="700" font-size="${fs1}">${line1}</text>`
+        }
+      </g>`;
+  });
+
+  holder.innerHTML = `
+  <svg viewBox="0 0 ${W} ${H}" style="width:100%; height:auto; display:block;">
+    <defs>
+      <linearGradient id="edgeGrad" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stop-color="#7C5CFC"/>
+        <stop offset="100%" stop-color="#FFB454"/>
+      </linearGradient>
+    </defs>
+    ${edges}
+    ${nodes}
+  </svg>
+  <div class="rec-legend">
+    <div class="rec-legend-item"><span class="rec-legend-dot" style="background:#7C5CFC"></span> Core engine</div>
+    <div class="rec-legend-item"><span class="rec-legend-dot" style="background:#A78BFA"></span> Fallback system</div>
+    <div class="rec-legend-item"><span class="rec-legend-dot" style="background:#FFB454"></span> Ranking feeds</div>
+    <div class="rec-legend-item"><span class="rec-legend-dot" style="background:#FB6F92"></span> Personal, per-user</div>
+  </div>`;
+
+  holder.querySelectorAll('.rgraph-node').forEach(g=>{
+    g.addEventListener('mouseenter', ()=> g.style.opacity = 0.85);
+    g.addEventListener('mouseleave', ()=> g.style.opacity = 1);
+    g.addEventListener('click', ()=>{
+      const idx = g.dataset.idx;
+      const card = document.querySelectorAll('.rec-detail')[Math.min(idx, document.querySelectorAll('.rec-detail').length-1)];
+      if(card){ card.scrollIntoView({behavior:'smooth', block:'center'}); card.style.transform='scale(1.02)'; setTimeout(()=>card.style.transform='',400); }
+    });
+  });
+})();
+
+/* ============ NAV SCROLLSPY (animated indicator) ============ */
+(function navSpy(){
+  const nav = document.getElementById('navlinks');
+  const indicator = document.getElementById('navIndicator');
+  const glow = document.getElementById('navGlow');
+  const links = Array.from(nav.querySelectorAll('a[data-sec]'));
+  const linkFor = {};
+  links.forEach(a=> linkFor[a.dataset.sec] = a);
+
+  function place(link){
+    if(!link) return;
+    const navBox = nav.getBoundingClientRect();
+    const box = link.getBoundingClientRect();
+    const left = box.left - navBox.left;
+    indicator.style.width = box.width + 'px';
+    indicator.style.transform = `translateX(${left}px)`;
+    glow.style.width = box.width + 'px';
+    glow.style.transform = `translateX(${left}px)`;
+    indicator.classList.add('ready');
+    glow.classList.add('ready');
+    links.forEach(a=> a.classList.toggle('active', a === link));
+  }
+
+  const targets = links
+    .map(a => document.getElementById(a.dataset.sec))
+    .filter(Boolean);
+
+  let current = null;
+  const spyIO = new IntersectionObserver((entries)=>{
+    entries.forEach(entry=>{
+      if(entry.isIntersecting){
+        current = entry.target.id;
+        place(linkFor[current]);
+      }
+    });
+  }, { rootMargin: '-42% 0px -52% 0px', threshold: 0 });
+  targets.forEach(t=> spyIO.observe(t));
+
+  window.addEventListener('resize', ()=> place(linkFor[current] || links[0]));
+  // land on "Demo" by default before any scroll has happened
+  place(links[0]);
+})();
+
+/* ============ SCROLL REVEAL ============ */
+const io = new IntersectionObserver((entries)=>{
+  entries.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
+}, { threshold: 0.12 });
+document.querySelectorAll('.reveal').forEach(el=> io.observe(el));
+
+/* re-observe dynamically injected reveal elements */
+setTimeout(()=>{ document.querySelectorAll('.reveal:not(.in)').forEach(el=> io.observe(el)); }, 50);
+
+/* ============ COUNT UP STATS ============ */
+const counters = document.querySelectorAll('.count-up');
+const counterIO = new IntersectionObserver((entries)=>{
+  entries.forEach(entry=>{
+    if(entry.isIntersecting){
+      const el = entry.target;
+      const target = parseInt(el.dataset.target, 10);
+      const dur = 1400;
+      const start = performance.now();
+      function tick(now){
+        const p = Math.min(1, (now-start)/dur);
+        const eased = 1 - Math.pow(1-p, 3);
+        el.textContent = Math.floor(eased*target).toLocaleString();
+        if(p<1) requestAnimationFrame(tick);
+        else el.textContent = target.toLocaleString();
+      }
+      requestAnimationFrame(tick);
+      counterIO.unobserve(el);
+    }
+  });
+}, { threshold: 0.5 });
+counters.forEach(c=> counterIO.observe(c));
+
+/* ============ COPY EMAIL ============ */
+function copyEmail(){
+  navigator.clipboard?.writeText('mohammad.sabzalian83@gmail.com').catch(()=>{});
+  showToast('Email copied — mohammad.sabzalian83@gmail.com');
+}
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(()=> t.classList.remove('show'), 2400);
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>SUT Music — Artist</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        ink: '#14121C',
+        surface: '#1E1B29',
+        raised: '#272335',
+        line: '#322D45',
+        muted: '#9891B0',
+        paper: '#F4F1FA',
+        brand: { DEFAULT: '#7C5CFC', dim: '#5B3FE0', glow: '#A78BFA' },
+        pulse: { DEFAULT: '#FFB454', dim: '#B9803A' },
+        rasp: { DEFAULT: '#FB6F92', dim: '#B24E68' },
+      },
+      fontFamily: {
+        display: ["'Fraunces'", "serif"],
+        sans: ["'Manrope'", "sans-serif"],
+        mono: ["'JetBrains Mono'", "monospace"],
+      },
+      borderRadius: { xl2: '1.25rem' },
+      boxShadow: {
+        soft: '0 8px 30px -10px rgba(0,0,0,0.45)',
+        glow: '0 0 0 1px rgba(124,92,252,0.35), 0 8px 24px -8px rgba(124,92,252,0.45)',
+      },
+      keyframes: {
+        pulseBar: { '0%, 100%': { transform: 'scaleY(0.4)' }, '50%': { transform: 'scaleY(1)' } },
+        floatUp: { '0%': { opacity: '0', transform: 'translateY(8px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+      },
+      animation: {
+        pulseBar: 'pulseBar 1.1s ease-in-out infinite',
+        floatUp: 'floatUp 0.4s ease-out both',
+      },
+    }
+  }
+}
+</script>
+<style>
+  ::-webkit-scrollbar { display: none; }
+  body { -ms-overflow-style: none; scrollbar-width: none; }
+  .rail { scrollbar-width: none; -ms-overflow-style: none; }
+  .rail::-webkit-scrollbar { display: none; }
+</style>
+</head>
+<body class="bg-ink text-paper font-sans antialiased min-h-screen">
+<div class="max-w-md mx-auto min-h-screen relative bg-ink overflow-hidden">
+
+<header class="sticky top-0 z-20 bg-ink/85 backdrop-blur-md px-5 pt-4 pb-3 flex items-center gap-3">
+  <button class="w-9 h-9 rounded-full bg-surface flex items-center justify-center active:scale-[0.97] transition-transform duration-150" aria-label="Back">
+    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+  </button>
+  <h1 class="font-display text-lg text-paper">Artist</h1>
+</header>
+
+<section class="px-5 flex items-center gap-4 mt-2">
+  <div class="bg-raised rounded-full overflow-hidden shrink-0 flex items-center justify-center border border-line/60" style="width:72px;height:72px">
+    <img src=https://kimi-web-img.kimi.ai/img/www.booksmithstudio.com/047d0a0f492b417c45deea689d0ed5dc630b6c6b.webp alt="" class="w-full h-full object-cover" />
+  </div>
+  <div class="min-w-0">
+    <h1 class="font-display text-xl text-paper truncate">The Weeknd</h1>
+    <div class="mt-1.5">
+      <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-pulse/15 text-pulse">
+        <svg xmlns="http://www.w3.org/2000/svg" width="12" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg> Legend
+      </span>
+    </div>
+  </div>
+</section>
+
+<p class="px-5 mt-4 text-sm text-muted leading-relaxed">
+  Abel Makkonen Tesfaye, known professionally as the Weeknd, is a Canadian singer, songwriter, and record producer. Known for his sonic versatility and dark lyricism, his music explores escapism, romance, and melancholia.
+</p>
+
+<section class="px-5 mt-5 grid grid-cols-3 gap-2">
+  <div class="bg-surface border border-line/60 rounded-xl2 p-3">
+    <div class="flex items-center gap-1.5 font-mono text-lg text-paper">2,840</div>
+    <p class="text-[11px] text-muted mt-0.5">Score</p>
+  </div>
+  <div class="bg-surface border border-line/60 rounded-xl2 p-3">
+    <div class="flex items-center gap-1.5 font-mono text-lg text-pulse">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg> 312
+    </div>
+    <p class="text-[11px] text-muted mt-0.5">Likes</p>
+  </div>
+  <div class="bg-surface border border-line/60 rounded-xl2 p-3">
+    <div class="flex items-center gap-1.5 font-mono text-lg text-rasp">
+      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg> 18
+    </div>
+    <p class="text-[11px] text-muted mt-0.5">Dislikes</p>
+  </div>
+</section>
+
+<!-- Discography rail -->
+<section class="mt-8">
+  <div class="flex items-end justify-between px-5 mb-3">
+    <div>
+      <p class="text-[11px] tracking-[0.18em] uppercase text-muted font-semibold mb-1">Discography</p>
+      <h2 class="font-display text-lg text-paper">Tracks in the group</h2>
+    </div>
+  </div>
+  <div class="rail flex gap-3 overflow-x-auto px-5 pb-1 snap-x snap-mandatory">
+    <button class="snap-start shrink-0 w-36 text-left active:scale-[0.97] transition-transform duration-150">
+      <div class="bg-raised rounded-xl2 overflow-hidden shrink-0 flex items-center justify-center border border-line/60" style="width:144px;height:144px">
+        <img src=https://kimi-web-img.kimi.ai/img/www.booksmithstudio.com/047d0a0f492b417c45deea689d0ed5dc630b6c6b.webp alt="" class="w-full h-full object-cover" />
+      </div>
+      <p class="mt-2 truncate font-medium text-sm text-paper">Blinding Lights</p>
+      <p class="truncate text-xs text-muted">The Weeknd</p>
+      <div class="mt-1 flex items-center gap-2 text-[11px] font-mono text-muted">
+        <span class="flex items-center gap-1 text-pulse"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg> 38</span>
+        <span class="flex items-center gap-1 text-rasp"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg> 1</span>
+      </div>
+    </button>
+    <button class="snap-start shrink-0 w-36 text-left active:scale-[0.97] transition-transform duration-150">
+      <div class="bg-raised rounded-xl2 overflow-hidden shrink-0 flex items-center justify-center border border-line/60" style="width:144px;height:144px">
+        <img src=https://kimi-web-img.kimi.ai/img/www.booksmithstudio.com/047d0a0f492b417c45deea689d0ed5dc630b6c6b.webp alt="" class="w-full h-full object-cover" />
+      </div>
+      <p class="mt-2 truncate font-medium text-sm text-paper">Starboy</p>
+      <p class="truncate text-xs text-muted">The Weeknd</p>
+      <div class="mt-1 flex items-center gap-2 text-[11px] font-mono text-muted">
+        <span class="flex items-center gap-1 text-pulse"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg> 56</span>
+        <span class="flex items-center gap-1 text-rasp"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg> 2</span>
+      </div>
+    </button>
+    <button class="snap-start shrink-0 w-36 text-left active:scale-[0.97] transition-transform duration-150">
+      <div class="bg-raised rounded-xl2 overflow-hidden shrink-0 flex items-center justify-center border border-line/60" style="width:144px;height:144px">
+        <img src=https://kimi-web-img.kimi.ai/img/www.booksmithstudio.com/047d0a0f492b417c45deea689d0ed5dc630b6c6b.webp alt="" class="w-full h-full object-cover" />
+      </div>
+      <p class="mt-2 truncate font-medium text-sm text-paper">Out of Time</p>
+      <p class="truncate text-xs text-muted">The Weeknd</p>
+      <div class="mt-1 flex items-center gap-2 text-[11px] font-mono text-muted">
+        <span class="flex items-center gap-1 text-pulse"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg> 33</span>
+        <span class="flex items-center gap-1 text-rasp"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg> 0</span>
+      </div>
+    </button>
+    <button class="snap-start shrink-0 w-36 text-left active:scale-[0.97] transition-transform duration-150">
+      <div class="bg-raised rounded-xl2 overflow-hidden shrink-0 flex items-center justify-center border border-line/60" style="width:144px;height:144px">
+        <img src=https://kimi-web-img.kimi.ai/img/www.booksmithstudio.com/047d0a0f492b417c45deea689d0ed5dc630b6c6b.webp alt="" class="w-full h-full object-cover" />
+      </div>
+      <p class="mt-2 truncate font-medium text-sm text-paper">Die For You</p>
+      <p class="truncate text-xs text-muted">The Weeknd</p>
+      <div class="mt-1 flex items-center gap-2 text-[11px] font-mono text-muted">
+        <span class="flex items-center gap-1 text-pulse"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z"/></svg> 45</span>
+        <span class="flex items-center gap-1 text-rasp"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z"/></svg> 3</span>
+      </div>
+    </button>
+  </div>
+</section>
+
+<div class="h-10"></div>
+</div></body></html>

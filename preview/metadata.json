@@ -1,6 +1,0 @@
-{
-  "name": "SUT Music Bot",
-  "description": "Interactive showcase & recommendation engine demonstration for SUT Music Telegram Bot & Web App",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

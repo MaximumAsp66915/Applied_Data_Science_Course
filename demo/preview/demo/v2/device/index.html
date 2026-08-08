@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SUT Music — Device Preview</title>
+  <link rel="stylesheet" href="device-preview.css" />
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <select class="device-picker" id="devicePicker" aria-label="Select device preview">
+    <option value="iphone-17-pro-max">iPhone 17 Pro Max</option>
+    <option value="s24-ultra">Samsung S24 Ultra</option>
+    <option value="s26-ultra">Samsung S26 Ultra</option>
+    <option value="z-fold-7">Galaxy Z Fold 7 (foldable)</option>
+    <option value="z-flip-7">Galaxy Z Flip 7 (foldable)</option>
+    <option value="ipad-pro">iPad Pro</option>
+    <option value="macbook-pro-14">MacBook Pro 14" (laptop)</option>
+  </select>
+
+  <div class="demo-index-page">
+    <div class="demo-index-preview">
+      <!-- Static caption - always reads "SUT MUSIC - DEMO", regardless of
+           which device is selected below. -->
+      <div class="demo-index-label" id="deviceLabel">SUT MUSIC - DEMO</div>
+      <div class="demo-index-stage" id="deviceStage"></div>
+    </div>
+  </div>
+  <script src="device-preview.js"></script>
+  <script>
+    const labelEl = document.getElementById('deviceLabel');
+    const stageEl = document.getElementById('deviceStage');
+    const params = new URLSearchParams(window.location.search);
+    const deviceKey = params.get('device') || 'iphone-17-pro-max';
+    const pagePath = params.get('page') || '../pages/demo-home.html';
+    const devicePicker = document.getElementById('devicePicker');
+    devicePicker.value = deviceKey;
+
+    devicePicker.addEventListener('change', () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('device', devicePicker.value);
+      window.location.href = url.toString();
+    });
+
+    // Sizing is pure CSS from here on (see .demo-index-stage /
+    // .demo-device-shell) - no JS measures the container or applies a
+    // transform:scale(), so browser/page zoom is left entirely to the
+    // browser itself instead of being computed against and undone.
+    window.devicePreview.setDevicePreviewLayout(stageEl, labelEl, deviceKey, pagePath, {
+      staticLabel: 'SUT MUSIC - DEMO'
+    });
+  </script>
+</body>
+</html>
