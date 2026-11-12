@@ -1,0 +1,51 @@
+# SUTMusic recommendation engine -- systemd USER unit, deliberately
+# SEPARATE from sutmusic.service (../../app/deploy/sutmusic.service, the
+# bot/webapp/frontend/tunnel stack). That split is the whole point: a push
+# that touches an engine_v*/ folder (.github/workflows/deploy-engine.yml,
+# which fires on engine_v*/** changes and picks the newest changed
+# version) restarts just this unit, and never disturbs the running app
+# stack -- and a push that only touches app/ never restarts this one
+# either.
+#
+# Lives in ~/.config/systemd/user/ and is controlled with
+# `systemctl --user ...`, same as sutmusic.service -- no sudo/root needed,
+# which is what lets the GitHub Action SSH in as a normal user and restart
+# it directly after every deploy.
+#
+# One-time setup on the server (same deploy user as the app, e.g. max) --
+# identical regardless of which engine_v* is currently deployed, since the
+# server only ever has a single "engine/" folder:
+#   cd /srv/bots/telegram/SUTMusic_app/engine
+#   bash setup_venv.sh                      # creates engine/.venv
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/sutengine.service ~/.config/systemd/user/sutengine.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now sutengine.service
+#   (loginctl enable-linger <user> should already be set from the app's
+#    own one-time setup -- see sutmusic.service -- no need to repeat it)
+#
+# After that, .github/workflows/deploy-engine.yml just re-runs:
+#   systemctl --user daemon-reload
+#   systemctl --user restart sutengine.service
+# on every deploy that touches an engine_v*/ folder.
+
+[Unit]
+Description=SUTMusic recommendation engine (FastAPI, 127.0.0.1 only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/bots/telegram/SUTMusic_app/engine
+ExecStart=/srv/bots/telegram/SUTMusic_app/engine/deploy/start.sh
+Restart=always
+RestartSec=5
+# start.sh already tears down its own child on TERM (see its trap), so a
+# plain TERM to the whole cgroup is enough on stop/restart.
+KillMode=control-group
+TimeoutStopSec=20
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

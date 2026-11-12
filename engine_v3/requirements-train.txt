@@ -1,0 +1,19 @@
+# ---------------------------------------------------------------------------
+# Packages for TRAINING (train.py) -- a developer machine only, never the
+# server (requirements.txt is what the server installs).
+#
+# numpy and scikit-learn are pinned to the SAME versions as requirements.txt
+# on purpose: train.py writes model_params/*.pkl (pickled LabelEncoders) and
+# pickles are only safe to load under the library versions that wrote them.
+# Train with numpy 2.x / a newer scikit-learn and the server can fail to load
+# the model after a deploy.
+#
+# CPU-only torch is enough (the whole run takes a few minutes):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# ---------------------------------------------------------------------------
+numpy==1.26.4
+scikit-learn==1.5.2
+pandas
+scipy
+rapidfuzz
+torch
